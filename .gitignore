@@ -20,3 +20,7 @@ nlp/optimized_intent_model/
 **/*.bin
 **/*.safetensors
 **/*.h5
+
+backend.zip
+prod-test-venv/
+nlp/exports/onnx_model/
