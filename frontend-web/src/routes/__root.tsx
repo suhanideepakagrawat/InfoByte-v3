@@ -88,7 +88,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         property: "og:description",
         content:
-          "Cross-source routing intelligence with confidence scoring and admin audit tooling.",
+          "InfoByte",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
