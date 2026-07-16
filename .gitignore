@@ -24,3 +24,6 @@ nlp/optimized_intent_model/
 backend.zip
 prod-test-venv/
 nlp/exports/onnx_model/
+
+frontend-web/.env.local
+frontend-web/.env
