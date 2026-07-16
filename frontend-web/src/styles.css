@@ -1,0 +1,121 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-periwinkle: var(--periwinkle);
+  --color-periwinkle-deep: var(--periwinkle-deep);
+  --color-apricot: var(--apricot);
+  --color-apricot-deep: var(--apricot-deep);
+  --color-ivory: var(--ivory);
+  --color-ink: var(--ink);
+  --font-display: "Instrument Serif", ui-serif, Georgia, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+:root {
+  --radius: 0.875rem;
+
+  --ivory: oklch(0.972 0.028 108);
+  --ink: oklch(0.18 0.015 260);
+
+  --periwinkle: oklch(0.78 0.09 285);
+  --periwinkle-deep: oklch(0.62 0.14 285);
+  --apricot: oklch(0.90 0.07 75);
+  --apricot-deep: oklch(0.80 0.12 65);
+
+  --background: var(--ivory);
+  --foreground: var(--ink);
+  --card: oklch(0.99 0.008 105);
+  --card-foreground: var(--ink);
+  --popover: oklch(0.99 0.008 105);
+  --popover-foreground: var(--ink);
+  --primary: var(--periwinkle-deep);
+  --primary-foreground: oklch(0.99 0.005 100);
+  --secondary: oklch(0.94 0.03 100);
+  --secondary-foreground: var(--ink);
+  --muted: oklch(0.94 0.025 100);
+  --muted-foreground: oklch(0.45 0.015 260);
+  --accent: var(--apricot);
+  --accent-foreground: var(--ink);
+  --destructive: oklch(0.62 0.22 27);
+  --destructive-foreground: oklch(0.99 0.005 100);
+  --border: oklch(0.88 0.02 100);
+  --input: oklch(0.90 0.02 100);
+  --ring: var(--periwinkle);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html, body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@utility glass-card {
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid color-mix(in oklab, var(--periwinkle) 35%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in oklab, white 60%, transparent) inset,
+    0 12px 40px -18px color-mix(in oklab, var(--periwinkle-deep) 40%, transparent),
+    0 2px 8px -4px color-mix(in oklab, var(--ink) 12%, transparent);
+}
+
+@utility soft-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--ink) 6%, transparent),
+    0 8px 24px -16px color-mix(in oklab, var(--ink) 14%, transparent);
+}
+
+@utility periwinkle-glow {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--periwinkle) 45%, transparent),
+    0 10px 30px -12px color-mix(in oklab, var(--periwinkle-deep) 45%, transparent);
+}
+
+@utility gradient-primary {
+  background-image: linear-gradient(135deg,
+    color-mix(in oklab, var(--periwinkle) 90%, white),
+    var(--periwinkle-deep));
+}
+
+@utility gradient-apricot {
+  background-image: linear-gradient(135deg,
+    color-mix(in oklab, var(--apricot) 90%, white),
+    var(--apricot-deep));
+}

@@ -1,0 +1,22 @@
+# Environments & Caches
+venv/
+.env
+.DS_Store
+**/__pycache__/
+**/*.pyc
+
+# Node & Frontend
+frontend-web/node_modules/
+frontend-web/dist/
+frontend-web/.tanstack/
+
+# Deep Learning Checkpoints & Weights
+nlp/checkpoints/
+nlp/results/
+nlp/infobyte_intent_model/
+nlp/optimized_intent_model/
+**/*.pt
+**/*.pth
+**/*.bin
+**/*.safetensors
+**/*.h5
