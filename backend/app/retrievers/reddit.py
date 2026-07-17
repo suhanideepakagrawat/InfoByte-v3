@@ -126,10 +126,32 @@ def scrape_reddit_post(page, url: str, max_comments: int = 10, timeout_ms: int =
 def scrape_reddit_posts(urls: list, max_comments: int = 10, delay_seconds: float = 1.0) -> list:
     results = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-background-timer-throttling",
+                "--disable-renderer-backgrounding",
+                "--disable-default-apps",
+                "--disable-sync",
+                "--mute-audio",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
+        )
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
+        def block_heavy_resources(route):
+            if route.request.resource_type in {"image", "media", "font"}:
+                route.abort()
+            else:
+                route.continue_()
+
+        context.route("**/*", block_heavy_resources)
         page = context.new_page()
 
         try:

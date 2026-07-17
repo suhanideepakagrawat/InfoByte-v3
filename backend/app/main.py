@@ -33,6 +33,11 @@ except ImportError:
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+print("[SUPABASE DEBUG] URL:", SUPABASE_URL)
+print("[SUPABASE DEBUG] Key loaded:", bool(SUPABASE_KEY))
+print("[SUPABASE DEBUG] Key prefix:", SUPABASE_KEY[:15] if SUPABASE_KEY else None)
+print("[SUPABASE DEBUG] Key length:", len(SUPABASE_KEY) if SUPABASE_KEY else 0)
 supabase: Optional[Client] = None
 if SUPABASE_AVAILABLE and SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)

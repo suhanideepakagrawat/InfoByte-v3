@@ -126,8 +126,34 @@ def scrape_docs_page(url: str) -> str | None:
     """
     
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-background-timer-throttling",
+                "--disable-renderer-backgrounding",
+                "--disable-default-apps",
+                "--disable-sync",
+                "--mute-audio",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
+        )
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        )
+
+        def block_heavy_resources(route):
+            if route.request.resource_type in {"image", "media", "font"}:
+                route.abort()
+            else:
+                route.continue_()
+
+        context.route("**/*", block_heavy_resources)
+        page = context.new_page()
         try:
             page.goto(url, wait_until="load", timeout=30000)
             page.wait_for_timeout(2000) # JS Render Buffer
@@ -142,6 +168,8 @@ def scrape_docs_page(url: str) -> str | None:
             print(f"  [Warning] Failed to scrape documentation page: {e}")
             return None
         finally:
+            page.close()
+            context.close()
             browser.close()
 
 def scrape_forum_thread(url: str) -> dict:
@@ -168,8 +196,32 @@ def scrape_forum_thread(url: str) -> dict:
         }
     """
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(user_agent="Mozilla/5.0")
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-background-timer-throttling",
+                "--disable-renderer-backgrounding",
+                "--disable-default-apps",
+                "--disable-sync",
+                "--mute-audio",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
+        )
+        context = browser.new_context(user_agent="Mozilla/5.0")
+
+        def block_heavy_resources(route):
+            if route.request.resource_type in {"image", "media", "font"}:
+                route.abort()
+            else:
+                route.continue_()
+
+        context.route("**/*", block_heavy_resources)
+        page = context.new_page()
         page.goto(url, wait_until="load", timeout=30000)
 
         try:
