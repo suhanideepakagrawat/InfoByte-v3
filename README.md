@@ -19,7 +19,7 @@ capabilities of generative AI.
 
 ## Key Features
 
--   Intent-aware query routing using a custom-trained classifier
+-   Intent-aware query routing using a custom-trained classifiergit add Report/InfoByte_Internship_Report.pdf
 -   Multi-source retrieval based on the detected query domain
 -   RAG-based architecture that grounds synthesis in retrieved
     information
