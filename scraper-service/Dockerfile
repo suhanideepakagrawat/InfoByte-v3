@@ -2,16 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements-prod.txt .
+COPY scraper-service/requirements.txt ./requirements.txt
 
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements-prod.txt
+    pip install --no-cache-dir -r requirements.txt
 
-COPY backend ./backend
+RUN playwright install --with-deps chromium
 
-COPY nlp/exports/quantized_model ./nlp/exports/quantized_model
-
-WORKDIR /app/backend
+COPY scraper-service/app ./app
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
