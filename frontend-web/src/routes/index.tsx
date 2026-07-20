@@ -84,7 +84,7 @@ function SearchView() {
       setSearchStage("verify_intent");
     } catch (err: any) {
       toast.error(`Classification engine failed: ${err.message}`);
-    } finally {
+    } fill-in-all-ways {
       setIsClassifying(false);
     }
   };
@@ -365,15 +365,9 @@ function SearchView() {
                 <Sparkles className="h-6 w-6 text-primary"/> InfoByte Gemini Synthesis Layer
               </h3>
               
-              <div className="grid md:grid-cols-2 gap-8 mt-4 relative z-10">
-                <div>
-                  <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-bold mb-3">Bounded Factual Summary</h4>
-                  <div className="text-[14.5px] leading-relaxed text-foreground/90 whitespace-pre-line bg-secondary/10 p-5 rounded-2xl border border-border/50 shadow-inner" dangerouslySetInnerHTML={{ __html: formatMainText(results.ai_synthesis.factual_summary) }} />
-                </div>
-                <div>
-                  <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-bold mb-3">AI Expert Engineering Overview</h4>
-                  <div className="text-[14.5px] leading-relaxed text-foreground/90 whitespace-pre-line bg-secondary/10 p-5 rounded-2xl border border-border/50 shadow-inner" dangerouslySetInnerHTML={{ __html: formatMainText(results.ai_synthesis.llm_overview) }} />
-                </div>
+              <div className="mt-4 relative z-10">
+                <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-bold mb-3">Bounded Factual Summary</h4>
+                <div className="text-[14.5px] leading-relaxed text-foreground/90 whitespace-pre-line bg-secondary/10 p-5 rounded-2xl border border-border/50 shadow-inner" dangerouslySetInnerHTML={{ __html: formatMainText(results.ai_synthesis.factual_summary) }} />
               </div>
             </div>
           )}
