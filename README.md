@@ -1,6 +1,6 @@
 <div align="center">
   <h1>
-    <img src="Infobyte_icon.png" alt="InfoByte Logo" width="55" align="center">
+    <img src="Infobyte_icon.png" alt="InfoByte Logo" width= "80" align="center">
     &nbsp;InfoByte
   </h1>
 </div>
