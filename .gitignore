@@ -26,4 +26,5 @@ prod-test-venv/
 nlp/exports/onnx_model/
 
 frontend-web/.env.local
-frontend-web/.env
+frontend-web/.envnlp/datasets/intent_dataset_augmented.csv
+/nlp/datasets/intent_dataset_augmented.csv
