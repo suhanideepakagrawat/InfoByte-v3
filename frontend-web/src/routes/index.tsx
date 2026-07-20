@@ -141,6 +141,58 @@ function SearchView() {
     }
   };
 
+  const handleSelectWikiArticle = async (title: string, articleUrl: string) => {
+    if (!articleUrl) {
+      toast.error("Wikipedia article URL is missing.");
+      return;
+    }
+
+    setSelectedWikiTitle(title);
+    setSelectedWikiContent(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/wikipedia/article`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: articleUrl }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error || data.status === "error") {
+        throw new Error(
+          data?.display_payload?.main_text ||
+          data?.detail ||
+          data?.error ||
+          "Unable to fetch the selected Wikipedia article."
+        );
+      }
+
+      const articlePayload = data.display_payload || {};
+      const fullContent = articlePayload.main_text || "";
+
+      if (!fullContent.trim()) {
+        throw new Error("Wikipedia returned an empty article.");
+      }
+
+      setSelectedWikiTitle(articlePayload.title || title);
+      setSelectedWikiContent(fullContent);
+
+      setResults((prev: any) => ({
+        ...prev,
+        payload: {
+          ...prev?.payload,
+          wikipedia: data,
+        },
+      }));
+
+      toast.success(`Loaded complete Wikipedia article: ${articlePayload.title || title}`);
+    } catch (err: any) {
+      setSelectedWikiContent(null);
+      toast.error(`Wikipedia article retrieval failed: ${err.message}`);
+    }
+  };
+
   const executeTargetedWikiSynthesis = async () => {
     if (!selectedWikiContent) return;
     setIsReSynthesizingWiki(true);
@@ -313,7 +365,14 @@ function SearchView() {
                 </div>
               </div>
               <div className="bg-white/60 p-4 rounded-lg w-full border border-amber-200/50">
-                 <ExpandableHtml htmlContent={formatMainText(selectedWikiContent || "")} />
+                 {selectedWikiContent ? (
+                   <ExpandableHtml htmlContent={formatMainText(selectedWikiContent)} />
+                 ) : (
+                   <div className="flex items-center gap-3 py-3 text-[14px] text-amber-900">
+                     <div className="h-5 w-5 rounded-full border-2 border-amber-300 border-t-amber-700 animate-spin" />
+                     Fetching complete Wikipedia article content...
+                   </div>
+                 )}
               </div>
               <button
                 onClick={executeTargetedWikiSynthesis}
@@ -334,9 +393,8 @@ function SearchView() {
               data={results.payload.wikipedia} 
               open={openContracts.wikipedia} 
               onToggle={() => toggle("wikipedia")} 
-              onSelectArticle={(title, text) => {
-                setSelectedWikiTitle(title);
-                setSelectedWikiContent(text);
+              onSelectArticle={(title, articleUrl) => {
+                handleSelectWikiArticle(title, articleUrl);
               }}
             />
           )}
@@ -625,7 +683,7 @@ function WikiBlock({ data, open, onToggle, onSelectArticle }: { data: any; open?
       </div>
       
       <button 
-        onClick={() => onSelectArticle(payload.title || "Primary Subject", payload.main_text || "")}
+        onClick={() => onSelectArticle(payload.title || "Primary Subject", payload.source_url || "")}
         className="mb-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-amber-100 border border-amber-300 text-amber-900 font-bold hover:bg-amber-200 transition-colors shadow-sm"
       >
         📌 Isolate This Article for Targeted Summary
@@ -636,7 +694,7 @@ function WikiBlock({ data, open, onToggle, onSelectArticle }: { data: any; open?
           {metadata.options.map((opt: any) => (
             <button
               key={opt.url}
-              onClick={() => onSelectArticle(opt.title || "Related Subject", `Context extracted from referenced platform links for destination: ${opt.title || opt.url}`)}
+              onClick={() => onSelectArticle(opt.title || "Related Subject", opt.url || "")}
               className="flex items-center justify-between text-left rounded-lg border border-border bg-white px-3 py-2 text-[13px] hover:bg-secondary transition w-full"
             >
               <span className="truncate font-medium text-primary">{opt.title || "Related Subject"}</span>
