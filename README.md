@@ -1,4 +1,7 @@
-# InfoByte
+<div align="center">
+  <img src="assets/infobyte-icon.png" alt="InfoByte Logo" width="110">
+  <h1>InfoByte</h1>
+</div>
 
 **InfoByte** is an intent-aware, cross-source information retrieval and
 synthesis platform designed to retrieve relevant information from
