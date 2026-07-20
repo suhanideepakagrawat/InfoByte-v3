@@ -1,7 +1,8 @@
 <div align="center">
-  <img src="Infobyte_icon.png" alt="InfoByte Logo" width="55" align="center">
-  &nbsp;&nbsp;
-  <img src="Assets/typing-animation.svg" alt="InfoByte - Multi-Source Routing Engine" height="55" align="center">
+  <h1>
+    <img src="Infobyte_icon.png" alt="InfoByte Logo" width="55" align="center">
+    &nbsp;InfoByte
+  </h1>
 </div>
 
 **InfoByte** is an intent-aware, cross-source information retrieval and
