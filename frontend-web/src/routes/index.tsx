@@ -151,10 +151,15 @@ function SearchView() {
     setSelectedWikiContent(null);
 
     try {
-      const res = await fetch(`${API_BASE}/wikipedia/article`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: articleUrl }),
+      // Use the existing deployed Wikipedia retriever route.
+      // /wikipedia/article does not exist on the current backend and returns 404.
+      const params = new URLSearchParams({
+        q: title,
+        url: articleUrl,
+      });
+
+      const res = await fetch(`${API_BASE}/retriever/wiki?${params.toString()}`, {
+        method: "GET",
       });
 
       const data = await res.json();
@@ -178,14 +183,9 @@ function SearchView() {
       setSelectedWikiTitle(articlePayload.title || title);
       setSelectedWikiContent(fullContent);
 
-      setResults((prev: any) => ({
-        ...prev,
-        payload: {
-          ...prev?.payload,
-          wikipedia: data,
-        },
-      }));
-
+      // Do NOT overwrite results.payload.wikipedia here.
+      // That object contains the original Wikipedia search/disambiguation card.
+      // The selected full article lives only in selectedWikiTitle/selectedWikiContent.
       toast.success(`Loaded complete Wikipedia article: ${articlePayload.title || title}`);
     } catch (err: any) {
       setSelectedWikiContent(null);
