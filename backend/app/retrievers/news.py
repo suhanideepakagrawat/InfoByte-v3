@@ -4,8 +4,8 @@ Responsible for fetching news headlines from GNews and NewsMesh APIs.
 """
 
 import os
-from dotenv import load_dotenv
 import requests
+from dotenv import load_dotenv
 
 from app.pipeline.api_parser import clean_json_response
 
@@ -66,7 +66,8 @@ def extract_search_keywords(query: str) -> str:
     )
 
     clean_keywords = [
-        word for word in words
+        word
+        for word in words
         if word not in stopwords
     ]
 
@@ -82,6 +83,10 @@ def extract_search_keywords(query: str) -> str:
 # ----------------------------------------------------------
 
 def handle_news_query(search_query: str) -> dict:
+
+    # ------------------------------------------------------
+    # Check API keys
+    # ------------------------------------------------------
 
     if not GNEWS_API_KEY and not NEWSMESH_API_KEY:
         return {
@@ -105,8 +110,9 @@ def handle_news_query(search_query: str) -> dict:
     providers_used = []
     first_url = None
 
+
     # ======================================================
-    # 1. GNEWS
+    # 1. GNEWS - TOP 3 ARTICLES
     # ======================================================
 
     if GNEWS_API_KEY:
@@ -115,7 +121,7 @@ def handle_news_query(search_query: str) -> dict:
                 "q": refined_keywords,
                 "token": GNEWS_API_KEY,
                 "lang": "en",
-                "max": 1,
+                "max": 3,
             }
 
             resp = requests.get(
@@ -145,35 +151,53 @@ def handle_news_query(search_query: str) -> dict:
 
                 if articles:
 
-                    article = articles[0]
+                    gnews_results = []
 
-                    article_url = article.get("url")
-                    article_title = article.get(
-                        "title",
-                        "No Title"
-                    )
+                    # Process maximum 3 articles
+                    for index, article in enumerate(
+                        articles[:3],
+                        start=1
+                    ):
 
-                    main_text = clean_json_response(
-                        article,
-                        [
+                        article_url = article.get("url")
+
+                        article_title = article.get(
                             "title",
-                            "description",
-                            "content",
-                        ],
-                    )
+                            "No Title"
+                        )
 
+                        # Title is displayed separately,
+                        # so only extract description/content
+                        main_text = clean_json_response(
+                            article,
+                            [
+                                "description",
+                                "content",
+                            ],
+                        )
+
+                        gnews_results.append(
+                            f"### {index}. "
+                            f"{article_title}\n\n"
+                            f"{main_text}\n\n"
+                            f"[Read Full Article]"
+                            f"({article_url})"
+                        )
+
+                        # Keep the first article URL
+                        # as the primary source URL
+                        if not first_url and article_url:
+                            first_url = article_url
+
+                    # Add all 3 articles as one result section
                     combined_text.append(
-                        f"### 📰 GNews Top Story: "
-                        f"{article_title}\n"
-                        f"{main_text}\n\n"
-                        f"[Read GNews Source]"
-                        f"({article_url})"
+                        "## 📰 Top 3 GNews Results\n\n"
+                        + "\n\n---\n\n".join(
+                            gnews_results
+                        )
                     )
 
                     providers_used.append("GNews")
-
-                    if not first_url:
-                        first_url = article_url
 
             else:
                 print(
@@ -184,7 +208,6 @@ def handle_news_query(search_query: str) -> dict:
                 )
 
         except Exception as e:
-
             print(
                 f"[DEBUG] GNews failed for "
                 f"'{refined_keywords}': "
@@ -192,8 +215,9 @@ def handle_news_query(search_query: str) -> dict:
                 flush=True,
             )
 
+
     # ======================================================
-    # 2. NEWSMESH
+    # 2. NEWSMESH - TOP STORY
     # ======================================================
 
     if NEWSMESH_API_KEY:
@@ -251,7 +275,6 @@ def handle_news_query(search_query: str) -> dict:
                     main_text = clean_json_response(
                         article,
                         [
-                            "title",
                             "description",
                             "content",
                         ],
@@ -259,7 +282,7 @@ def handle_news_query(search_query: str) -> dict:
 
                     combined_text.append(
                         f"### 📡 NewsMesh Top Story: "
-                        f"{article_title}\n"
+                        f"{article_title}\n\n"
                         f"{main_text}\n\n"
                         f"[Read NewsMesh Source]"
                         f"({article_url})"
@@ -267,7 +290,7 @@ def handle_news_query(search_query: str) -> dict:
 
                     providers_used.append("NewsMesh")
 
-                    if not first_url:
+                    if not first_url and article_url:
                         first_url = article_url
 
             else:
@@ -279,13 +302,13 @@ def handle_news_query(search_query: str) -> dict:
                 )
 
         except Exception as e:
-
             print(
                 f"[DEBUG] NewsMesh failed for "
                 f"'{refined_keywords}': "
                 f"{type(e).__name__}: {e}",
                 flush=True,
             )
+
 
     # ======================================================
     # NO RESULTS
@@ -307,6 +330,7 @@ def handle_news_query(search_query: str) -> dict:
                 ),
             },
         }
+
 
     # ======================================================
     # SUCCESS
