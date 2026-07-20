@@ -1,6 +1,8 @@
 <div align="center">
-  <img src="Assets/Infobyte_icon.png" width="110">
-  <h1>InfoByte</h1>
+  <h1>
+    <img src="Infobyte_icon.png" alt="InfoByte Logo" width="55" align="center">
+    &nbsp;InfoByte
+  </h1>
 </div>
 
 **InfoByte** is an intent-aware, cross-source information retrieval and
