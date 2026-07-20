@@ -82,10 +82,11 @@ function SearchView() {
       setChosenIntent(classData.top_intent);
       setInitialSummary(summaryData.summary);
       setSearchStage("verify_intent");
-    } catch (err: any) {
+    } } catch (err: any) {
       toast.error(`Classification engine failed: ${err.message}`);
-    } fill-in-all-ways {
+    } finally {
       setIsClassifying(false);
+    }
     }
   };
 
