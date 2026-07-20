@@ -176,9 +176,12 @@ def main():
     print(f"Final Evaluation Metrics: {test_results}")
     
     # Save optimized model weights & configurations
-    model.save_pretrained("./optimized_intent_model")
-    tokenizer.save_pretrained("./optimized_intent_model")
-    print("\nModel pipeline successfully exported to './optimized_intent_model'")
+    MODEL_OUTPUT_DIR = "nlp/exports/best_model"
+
+    trainer.save_model(MODEL_OUTPUT_DIR)
+    tokenizer.save_pretrained(MODEL_OUTPUT_DIR)
+
+    print(f"\nModel pipeline successfully exported to '{MODEL_OUTPUT_DIR}'")
 
 if __name__ == "__main__":
     main()
