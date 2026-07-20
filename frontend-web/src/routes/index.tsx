@@ -151,13 +151,10 @@ function SearchView() {
     setSelectedWikiContent(null);
 
     try {
-      const params = new URLSearchParams({
-        q: title,
-        url: articleUrl,
-      });
-
-      const res = await fetch(`${API_BASE}/retriever/wiki?${params.toString()}`, {
-        method: "GET",
+      const res = await fetch(`${API_BASE}/wikipedia/article`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: articleUrl }),
       });
 
       const data = await res.json();
@@ -426,9 +423,15 @@ function SearchView() {
                 <Sparkles className="h-6 w-6 text-primary"/> InfoByte Gemini Synthesis Layer
               </h3>
               
-              <div className="mt-4 relative z-10">
-                <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-bold mb-3">Bounded Factual Summary</h4>
-                <div className="text-[14.5px] leading-relaxed text-foreground/90 whitespace-pre-line bg-secondary/10 p-5 rounded-2xl border border-border/50 shadow-inner" dangerouslySetInnerHTML={{ __html: formatMainText(results.ai_synthesis.factual_summary) }} />
+              <div className="grid md:grid-cols-2 gap-8 mt-4 relative z-10">
+                <div>
+                  <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-bold mb-3">Bounded Factual Summary</h4>
+                  <div className="text-[14.5px] leading-relaxed text-foreground/90 whitespace-pre-line bg-secondary/10 p-5 rounded-2xl border border-border/50 shadow-inner" dangerouslySetInnerHTML={{ __html: formatMainText(results.ai_synthesis.factual_summary) }} />
+                </div>
+                <div>
+                  <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-bold mb-3">AI Expert Engineering Overview</h4>
+                  <div className="text-[14.5px] leading-relaxed text-foreground/90 whitespace-pre-line bg-secondary/10 p-5 rounded-2xl border border-border/50 shadow-inner" dangerouslySetInnerHTML={{ __html: formatMainText(results.ai_synthesis.llm_overview) }} />
+                </div>
               </div>
             </div>
           )}
@@ -507,44 +510,25 @@ function parseRedditRawText(rawText: string) {
 
 function ExpandableHtml({ htmlContent }: { htmlContent: string }) {
   const [expanded, setExpanded] = useState(false);
-
-  const plainText = htmlContent
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-
-  const needsExpansion = plainText.length > 300;
-  const previewText = needsExpansion
-    ? `${plainText.slice(0, 300).trimEnd()}...`
-    : plainText;
+  const needsExpansion = htmlContent.length > 400;
 
   return (
     <div className="relative">
-      {expanded || !needsExpansion ? (
-        <div
-          className="text-[14.5px] leading-relaxed text-foreground/90 font-sans tracking-wide"
-          dangerouslySetInnerHTML={{ __html: htmlContent }}
-        />
-      ) : (
-        <div className="text-[14.5px] leading-relaxed text-foreground/90 font-sans tracking-wide whitespace-pre-line">
-          {previewText}
-        </div>
+      <div 
+         className={`text-[14.5px] leading-relaxed text-foreground/90 font-sans tracking-wide ${needsExpansion && !expanded ? "line-clamp-6 max-h-[170px] overflow-hidden" : ""}`} 
+         dangerouslySetInnerHTML={{ __html: htmlContent }} 
+      />
+      {needsExpansion && !expanded && (
+         <div className="absolute bottom-0 left-0 w-full h-20 bg-gradient-to-t from-gray-50/50 via-white/90 to-transparent pointer-events-none" />
       )}
-
       {needsExpansion && (
-        <button
-          type="button"
-          onClick={() => setExpanded((current) => !current)}
-          className="mt-5 w-full flex items-center justify-center gap-2 bg-primary text-white font-bold py-3.5 rounded-xl transition-all uppercase tracking-widest text-[13px] shadow-md hover:bg-primary/90"
-        >
-          {expanded ? "Show Less" : "Read More"}
-          <ChevronDown className={`h-5 w-5 transition-transform duration-300 ${expanded ? "rotate-180" : ""}`} />
-        </button>
+         <button 
+           onClick={() => setExpanded(!expanded)} 
+           className="mt-5 w-full flex items-center justify-center gap-2 bg-primary text-white font-bold py-3.5 rounded-xl transition-all uppercase tracking-widest text-[13px] shadow-md hover:bg-primary/90"
+         >
+           {expanded ? "Collapse Content" : "Read Full Context"}
+           <ChevronDown className={`h-5 w-5 transition-transform duration-300 ${expanded ? "rotate-180" : ""}`} />
+         </button>
       )}
     </div>
   );
