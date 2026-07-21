@@ -18,7 +18,7 @@ export const Route = createFileRoute("/")({
 });
 
 const API_BASE =
-  "https://info-byte-v3.vercel.app/api";
+  "https://infobyte-v3.onrender.com";
 
 const ALL_TAXONOMY_INTENTS = [
   "technical_code", "technical_oracle", "discussion_social",
