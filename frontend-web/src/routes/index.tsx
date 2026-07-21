@@ -18,7 +18,7 @@ export const Route = createFileRoute("/")({
 });
 
 const API_BASE =
-  "https://infobyte-v3.onrender.com";
+  "https://infobyte-v3.onrender.com/api";
 
 const ALL_TAXONOMY_INTENTS = [
   "technical_code", "technical_oracle", "discussion_social",
