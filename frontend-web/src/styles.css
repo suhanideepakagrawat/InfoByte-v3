@@ -36,21 +36,21 @@
   --color-apricot-deep: var(--apricot-deep);
   --color-ivory: var(--ivory);
   --color-ink: var(--ink);
-  --font-display: "Instrument Serif", ui-serif, Georgia, serif;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Lato", ui-serif, Georgia, serif;
+  --font-sans: "Lato", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Lato", ui-monospace, monospace;
 }
 
 :root {
   --radius: 0.875rem;
 
   --ivory: oklch(0.972 0.028 108);
-  --ink: oklch(0.18 0.015 260);
+  --ink: #000000;
 
-  --periwinkle: oklch(0.78 0.09 285);
-  --periwinkle-deep: oklch(0.62 0.14 285);
-  --apricot: oklch(0.90 0.07 75);
-  --apricot-deep: oklch(0.80 0.12 65);
+  --periwinkle: #136F63;
+  --periwinkle-deep: #136F63;
+  --apricot: #99DDC8;
+  --apricot-deep: #99DDC8;
 
   --background: var(--ivory);
   --foreground: var(--ink);
