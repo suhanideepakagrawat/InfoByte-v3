@@ -18,11 +18,11 @@ export const Route = createFileRoute("/")({
 });
 
 const API_BASE =
-  "https://infobyte-v3.onrender.com/api";
+  "http://127.0.0.1:8000/api";
 
 const ALL_TAXONOMY_INTENTS = [
   "technical_code", "technical_oracle", "discussion_social",
-  "general_wiki", "movies", "weather", "google_search"
+  "general_wiki", "movies", "weather", "google_search", "academic_research"
 ];
 
 const SCRAPER_MAP: Record<string, string[]> = {
@@ -32,7 +32,8 @@ const SCRAPER_MAP: Record<string, string[]> = {
   "movies": ["wiki"],
   "weather": ["weather"],
   "discussion_social": ["news", "reddit"],
-  "google_search": ["google_search"]
+  "google_search": ["google_search"],
+  "academic_research": ["academic_research", "google_search"]
 };
 
 function SearchView() {
@@ -402,6 +403,7 @@ function SearchView() {
           {results.payload?.reddit && <RedditBlock data={results.payload.reddit} open={openContracts.reddit} onToggle={() => toggle("reddit")} />}
           {results.payload?.stackoverflow && <StackBlock data={results.payload.stackoverflow} open={openContracts.stack} onToggle={() => toggle("stack")} />}
           {results.payload?.oracle && <OracleBlock data={results.payload.oracle} open={openContracts.oracle} onToggle={() => toggle("oracle")} />}
+          {results.payload?.academic_research && <AcademicResearchBlock data={results.payload.academic_research} open={openContracts.academic_research} onToggle={() => toggle("academic_research")} />}
           {results.payload?.google_search && <GoogleSearchBlock data={results.payload.google_search} open={openContracts.google_search} onToggle={() => toggle("google_search")} />}
 
           {/* Bounded Gemini Synthesis Layer */}
@@ -862,6 +864,253 @@ function OracleBlock({ data, open, onToggle }: { data: any; open?: boolean; onTo
           </div>
         );
       })}
+    </ResultCard>
+  );
+}
+
+
+function AcademicResearchBlock({ data, open, onToggle }: { data: any; open?: boolean; onToggle: () => void }) {
+  const payload = data?.display_payload || {};
+  const metadata = payload?.metadata || data?.metadata || {};
+
+  if (data?.error || payload?.main_text?.includes("Scraper Error")) {
+    return (
+      <ResultCard
+        icon={<BookOpen className="h-5 w-5" />}
+        title="Academic Research Retrieval Failed"
+        source="Academic Research Engine"
+        open={open}
+        onToggle={onToggle}
+        contract={data}
+      >
+        <div className="bg-red-50 text-red-800 p-4 border border-red-200 rounded-xl text-[14px] font-medium">
+          {payload?.main_text || data?.error || "Unable to retrieve academic research results."}
+        </div>
+      </ResultCard>
+    );
+  }
+
+  // The academic_research backend returns the unified paper list here:
+  // data.display_payload.results
+  const papers = Array.isArray(payload?.results)
+    ? payload.results
+    : Array.isArray(data?.results)
+      ? data.results
+      : [];
+
+  const renderAuthors = (authors: any) => {
+    if (!authors) return "Authors unavailable";
+
+    if (Array.isArray(authors)) {
+      const names = authors
+        .map((author: any) =>
+          typeof author === "string"
+            ? author
+            : author?.name ||
+              author?.display_name ||
+              author?.author_name ||
+              ""
+        )
+        .filter(Boolean);
+
+      return names.length > 0 ? names.join(", ") : "Authors unavailable";
+    }
+
+    return String(authors);
+  };
+
+  const formatDate = (value: any) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  return (
+    <ResultCard
+      icon={<BookOpen className="h-5 w-5" />}
+      title={payload?.title || "Academic Research"}
+      source="arXiv + OpenAlex Research Engine"
+      sourceUrl={payload?.source_url}
+      open={open}
+      onToggle={onToggle}
+      contract={data}
+    >
+      {payload?.main_text && (
+        <div className="mb-5 rounded-2xl border border-border bg-secondary/10 px-5 py-4 text-[14px] text-foreground/90 shadow-sm">
+          {payload.main_text}
+        </div>
+      )}
+
+      {papers.length > 0 ? (
+        <div className="space-y-5">
+          {papers.map((paper: any, idx: number) => {
+            const rawSource = String(paper?.source || "academic").toLowerCase();
+            const sourceLabel =
+              rawSource === "arxiv"
+                ? "arXiv"
+                : rawSource === "openalex" || rawSource === "open_alex"
+                  ? "OpenAlex"
+                  : paper?.source || "Academic";
+
+            const title = paper?.title || "Untitled research paper";
+            const authors = renderAuthors(paper?.authors);
+            const abstract =
+              paper?.abstract ||
+              paper?.summary ||
+              paper?.description ||
+              "No abstract was provided by this source.";
+
+            const published = formatDate(
+              paper?.published ||
+              paper?.publication_date ||
+              paper?.publication_year ||
+              paper?.year
+            );
+
+            const updated = formatDate(paper?.updated);
+            const citationCount =
+              paper?.citation_count ?? paper?.cited_by_count ?? null;
+
+            const categories = Array.isArray(paper?.categories)
+              ? paper.categories
+              : paper?.categories
+                ? [paper.categories]
+                : paper?.category
+                  ? [paper.category]
+                  : [];
+
+            const paperUrl =
+              paper?.url ||
+              paper?.paper_url ||
+              paper?.entry_id ||
+              paper?.doi_url ||
+              paper?.id;
+
+            const pdfUrl = paper?.pdf_url;
+
+            return (
+              <article
+                key={`${rawSource}-${paper?.paper_id || paper?.id || paperUrl || title}-${idx}`}
+                className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm transition hover:border-primary/40 hover:shadow-md"
+              >
+                <div className="px-5 py-5 md:px-6">
+                  <div className="flex flex-col gap-3 border-b border-border/70 pb-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-primary">
+                          {sourceLabel}
+                        </span>
+
+                        {published && (
+                          <span className="rounded-md bg-secondary px-2 py-1 text-[11px] font-mono text-muted-foreground">
+                            {published}
+                          </span>
+                        )}
+
+                        {citationCount !== null && (
+                          <span className="rounded-md bg-secondary px-2 py-1 text-[11px] font-mono text-muted-foreground">
+                            {citationCount} citations
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className="text-[16px] font-bold leading-snug tracking-tight text-primary md:text-[17px]">
+                        {title}
+                      </h4>
+                    </div>
+
+                    <span className="shrink-0 text-[11px] font-mono text-muted-foreground">
+                      Paper {idx + 1}
+                    </span>
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground">
+                      Authors
+                    </div>
+                    <p className="mt-1.5 text-[13px] leading-relaxed text-foreground/85">
+                      {authors}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-border/60 bg-secondary/10 p-4 md:p-5">
+                    <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground">
+                      Abstract
+                    </div>
+                    <ExpandableHtml htmlContent={formatMainText(abstract)} />
+                  </div>
+
+                  {(categories.length > 0 || updated) && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {categories.map((category: string, categoryIdx: number) => (
+                        <span
+                          key={`${category}-${categoryIdx}`}
+                          className="rounded-full border border-border bg-white px-2.5 py-1 text-[11px] font-mono text-muted-foreground"
+                        >
+                          {category}
+                        </span>
+                      ))}
+
+                      {updated && (
+                        <span className="rounded-full border border-border bg-white px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+                          Updated: {updated}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {(paperUrl || pdfUrl) && (
+                    <div className="mt-5 flex flex-wrap gap-2 border-t border-border/60 pt-4">
+                      {paperUrl && (
+                        <a
+                          href={paperUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-[12px] font-bold text-white transition hover:brightness-105"
+                        >
+                          Open Research Paper
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+
+                      {pdfUrl && (
+                        <a
+                          href={pdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-[12px] font-bold text-primary transition hover:bg-primary/10"
+                        >
+                          Open PDF
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-[14px] text-amber-900">
+          The academic retrieval request completed, but no paper records were found in
+          <code className="mx-1 rounded bg-white/70 px-1.5 py-0.5 font-mono text-[12px]">
+            display_payload.results
+          </code>.
+        </div>
+      )}
+
+      {Array.isArray(metadata?.successful_sources) &&
+        metadata.successful_sources.length > 0 && (
+          <div className="mt-5 border-t border-border/60 pt-4 text-[11px] font-mono text-muted-foreground">
+            Successful sources: {metadata.successful_sources.join(", ")}
+          </div>
+        )}
     </ResultCard>
   );
 }

@@ -22,6 +22,7 @@ from app.retrievers.news import handle_news_query
 from app.retrievers.stackoverflow import handle_stackoverflow_query
 from app.retrievers.reddit import handle_reddit_query
 from app.retrievers.google_search import handle_google_search
+from app.retrievers.academic_research import handle_academic_research
 
 # --- Supabase Initialization ---
 try:
@@ -152,3 +153,7 @@ def direct_wiki(q: str, url: str = None): return _inject_intent(handle_wiki_quer
 def direct_news(q: str): return _inject_intent(handle_news_query(q), "discussion_social")
 @app.get("/api/retriever/google_search")
 def direct_google(q: str): return _inject_intent(handle_google_search(q), "google_search")
+
+@app.get("/api/retriever/academic_research")
+def direct_academic_research(q: str):
+    return _inject_intent(handle_academic_research(q), "academic_research")

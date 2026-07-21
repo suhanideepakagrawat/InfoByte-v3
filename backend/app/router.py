@@ -7,6 +7,7 @@ import concurrent.futures
 from typing import Optional
 from app.api.classifier import intent_classifier
 from app.pipeline.summarizer import generate_engine_synthesis
+from app.retrievers.academic_research import handle_academic_research
 
 # Retrievers
 from app.retrievers.oracle import handle_oracle_query
@@ -52,7 +53,8 @@ INTENT_SOURCE_ORDER = {
     "movies": ["wikipedia", "google_search"],
     "weather": ["weather", "google_search"],
     "discussion_social": ["news", "reddit", "google_search"],
-    "google_search": ["google_search"]
+    "google_search": ["google_search"],
+    "academic_research": ["academic_research", "google_search"],
 }
 
 
@@ -87,6 +89,17 @@ def route_query(user_query: str, confirmed_intent: Optional[str] = None, skip_sy
         elif intent == "discussion_social":
             scraper_map["news"] = handle_news_query
             scraper_map["reddit"] = lambda q: handle_reddit_query(q, "discussion_social")
+        elif intent == "discussion_social":
+            scraper_map["news"] = handle_news_query
+            scraper_map["reddit"] = lambda q: handle_reddit_query(
+                q, "discussion_social"
+            )
+
+        elif intent == "academic_research":
+            scraper_map["academic_research"] = handle_academic_research
+
+        elif intent == "google_search":
+            pass
         elif intent == "google_search":
             pass
 
@@ -140,3 +153,19 @@ def route_query(user_query: str, confirmed_intent: Optional[str] = None, skip_sy
         "payload": packaged_data,
         "ai_synthesis": ai_synthesis
     }
+
+
+def fetch_selected_wikipedia_article(article_url: str) -> dict:
+    """Fetch the complete content of a specifically selected Wikipedia article."""
+    if not article_url:
+        return {
+            "status": "error",
+            "intent": "general_wiki",
+            "display_payload": {
+                "title": "Wikipedia Selection Error",
+                "main_text": "No Wikipedia article URL was provided."
+            }
+        }
+
+    result = handle_wiki_query("", url=article_url)
+    return _inject_intent(result, "general_wiki")
