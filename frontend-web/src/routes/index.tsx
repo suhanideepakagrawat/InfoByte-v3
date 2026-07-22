@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import {
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/")({
 });
 
 const API_BASE =
-  "https://infobyte-v3.onrender.com/api";
+  "https://infobyte-v3.onrender.com";
 
 const ALL_TAXONOMY_INTENTS = [
   "technical_code", "technical_oracle", "discussion_social",
@@ -1533,7 +1533,7 @@ function MedicineBlock({
 
         {uses && (
           <MedicineAccordionSection title="Uses">
-            <ExpandableHtml htmlContent={formatMainText(uses)} />
+            <MedicineLabelSection rawText={uses} kind="uses" />
           </MedicineAccordionSection>
         )}
 
@@ -1555,7 +1555,7 @@ function MedicineBlock({
             {labelInstructions && (
               <div className="rounded-xl border border-border bg-secondary/10 p-4 shadow-sm">
                 <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Official label instructions</div>
-                <ExpandableHtml htmlContent={formatMainText(labelInstructions)} />
+                <MedicineLabelSection rawText={labelInstructions} kind="dosage" />
               </div>
             )}
           </MedicineAccordionSection>
@@ -1563,19 +1563,19 @@ function MedicineBlock({
 
         {sideEffects && (
           <MedicineAccordionSection title="Side Effects">
-            <ExpandableHtml htmlContent={formatMainText(sideEffects)} />
+            <MedicineLabelSection rawText={sideEffects} kind="sideEffects" />
           </MedicineAccordionSection>
         )}
 
         {warnings && (
           <MedicineAccordionSection title="Warnings">
-            <ExpandableHtml htmlContent={formatMainText(warnings)} />
+            <MedicineLabelSection rawText={warnings} kind="warnings" />
           </MedicineAccordionSection>
         )}
 
         {precautions && (
           <MedicineAccordionSection title="Precautions">
-            <ExpandableHtml htmlContent={formatMainText(precautions)} />
+            <MedicineLabelSection rawText={precautions} kind="precautions" />
           </MedicineAccordionSection>
         )}
 
@@ -1650,6 +1650,266 @@ function MedicineAccordionSection({ title, children }: { title: string; children
         <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-300 ${open ? "rotate-180" : ""}`} />
       </button>
       {open && <div className="border-t border-border/70 px-4 py-4">{children}</div>}
+    </div>
+  );
+}
+
+function MedicineLabelSection({ rawText, kind }: { rawText: string; kind: "uses" | "dosage" | "sideEffects" | "warnings" | "precautions" }) {
+  const [view, setView] = useState<"formatted" | "raw">("formatted");
+  const formattedContent = useMemo(() => renderFormattedMedicineText(rawText, kind), [rawText, kind]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-end">
+        <MedicineViewToggle value={view} onChange={setView} />
+      </div>
+      {view === "formatted" ? (
+        formattedContent || (
+          <div className="rounded-xl border border-border bg-secondary/10 p-4 text-[13px] leading-6 text-foreground/85 whitespace-pre-wrap">
+            {rawText}
+          </div>
+        )
+      ) : (
+        <div className="rounded-xl border border-border bg-secondary/10 p-4 text-[13px] leading-6 text-foreground/85 whitespace-pre-wrap">
+          {rawText}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MedicineViewToggle({ value, onChange }: { value: "formatted" | "raw"; onChange: (next: "formatted" | "raw") => void }) {
+  return (
+    <div className="inline-flex rounded-full border border-border bg-white p-1 shadow-sm">
+      <button
+        type="button"
+        onClick={() => onChange("formatted")}
+        className={`rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition ${value === "formatted" ? "bg-primary text-white" : "text-muted-foreground"}`}
+      >
+        Formatted View
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("raw")}
+        className={`rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition ${value === "raw" ? "bg-primary text-white" : "text-muted-foreground"}`}
+      >
+        Original Label
+      </button>
+    </div>
+  );
+}
+
+function renderFormattedMedicineText(rawText: string, kind: "uses" | "dosage" | "sideEffects" | "warnings" | "precautions") {
+  const text = (rawText || "").trim();
+  if (!text) return null;
+
+  const blocks = splitMedicineSections(text);
+  if (blocks.length > 1) {
+    return (
+      <div className="space-y-3">
+        {blocks.map((block, blockIndex) => (
+          <LabelSubsection key={`${block.title || "section"}-${blockIndex}`} title={block.title}>
+            {renderMedicineBlockContent(block.content, kind)}
+          </LabelSubsection>
+        ))}
+      </div>
+    );
+  }
+
+  return renderMedicineBlockContent(text, kind);
+}
+
+function splitMedicineSections(text: string) {
+  const lines = text.split(/\r?\n/).map((line) => line.trimEnd());
+  const sections: Array<{ title: string; content: string[] }> = [];
+
+  let current: { title: string; content: string[] } | null = null;
+
+  const flush = () => {
+    if (!current) return;
+    const content = current.content.filter((line) => line.trim()).join("\n").trim();
+    if (content || current.title) {
+      sections.push({ title: current.title, content: content ? [content] : [] });
+    }
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      if (current) {
+        current.content.push("");
+      }
+      return;
+    }
+
+    if (isMedicineHeading(line)) {
+      flush();
+      current = { title: cleanMedicineHeading(line), content: [] };
+      return;
+    }
+
+    if (!current) {
+      current = { title: "", content: [] };
+    }
+    current.content.push(line);
+  });
+
+  flush();
+
+  return sections.filter((section) => section.title || section.content.length > 0);
+}
+
+function isMedicineHeading(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (/^\d+(?:\.\d+)*\s+/.test(trimmed)) return true;
+  if (/^(adult|pediatric|limitations of use|usage|indications and usage|dosage and administration|adverse reactions|warnings and precautions|clinical trials experience|postmarketing experience|laboratory abnormalities|hepatotoxicity|severe allergic reactions|qt prolongation|precautions)$/i.test(trimmed)) return true;
+  if (/^[A-Z][A-Z0-9 /&(),.-]+$/.test(trimmed) && trimmed.split(/\s+/).length <= 8) return true;
+  return false;
+}
+
+function cleanMedicineHeading(line: string) {
+  return line
+    .trim()
+    .replace(/^\d+(?:\.\d+)*\s+/, "")
+    .replace(/\s+/g, " ");
+}
+
+function renderMedicineBlockContent(content: string | string[], kind: "uses" | "dosage" | "sideEffects" | "warnings" | "precautions") {
+  const normalized = (Array.isArray(content) ? content.join("\n") : content)
+    .replace(/\r/g, "")
+    .trim();
+  if (!normalized) return null;
+
+  const bulletItems = normalized
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("•") || line.startsWith("-"))
+    .map((line) => line.replace(/^[-•]\s*/, "").trim())
+    .filter(Boolean);
+
+  if (bulletItems.length > 0) {
+    return <LabelBulletList items={bulletItems} />;
+  }
+
+  const categoryMatches = normalized
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter((line) => /.+:\s/.test(line) && line.split(":")[0].trim().length > 1);
+
+  if (categoryMatches.length > 0 && kind !== "dosage") {
+    return (
+      <div className="space-y-2">
+        {categoryMatches.map((line, index) => {
+          const [category, ...rest] = line.split(":");
+          return <LabelCategoryRow key={`${category}-${index}`} category={category.trim()} content={rest.join(":").trim()} />;
+        })}
+      </div>
+    );
+  }
+
+  if (kind === "dosage") {
+    return renderDosageContent(normalized);
+  }
+
+  const paragraphs = normalized
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length > 1) {
+    return (
+      <div className="space-y-3">
+        {paragraphs.map((paragraph, index) => (
+          <div key={`${paragraph.slice(0, 20)}-${index}`} className="text-[13px] leading-6 text-foreground/85">
+            {paragraph}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <div className="text-[13px] leading-6 text-foreground/85 whitespace-pre-wrap">{normalized}</div>;
+}
+
+function renderDosageContent(content: string) {
+  const lines = content
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const blocks: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+
+  lines.forEach((line) => {
+    const isConditionLike = !/^(recommended dose|dose|duration|dosage|adult|pediatric|children|infants|patients|therapy|treatment|administration)/i.test(line) && !/^[0-9]+/.test(line);
+    if (isConditionLike && !line.includes(":") && line.length < 120) {
+      if (current) {
+        blocks.push(current);
+      }
+      current = { title: line, body: [] };
+      return;
+    }
+
+    if (current) {
+      current.body.push(line);
+    } else {
+      blocks.push({ title: "Dosage Information", body: [line] });
+    }
+  });
+
+  if (current) {
+    blocks.push(current);
+  }
+
+  if (blocks.length === 0) {
+    return <div className="text-[13px] leading-6 text-foreground/85 whitespace-pre-wrap">{content}</div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {blocks.map((block, index) => (
+        <div key={`${block.title}-${index}`} className="rounded-xl border border-border bg-white/70 p-4 shadow-sm">
+          <div className="text-[12px] font-bold uppercase tracking-[0.14em] text-primary">{block.title}</div>
+          <div className="mt-2 space-y-2 text-[13px] leading-6 text-foreground/85">
+            {block.body.length > 0 ? block.body.map((entry, entryIndex) => (
+              <div key={`${entry}-${entryIndex}`} className="rounded-lg border border-border/70 bg-secondary/10 px-3 py-2">
+                {entry}
+              </div>
+            )) : <div className="text-muted-foreground">No additional dosage details provided.</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LabelSubsection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border bg-white/80 p-4 shadow-sm">
+      {title && <div className="mb-3 text-[12px] font-bold uppercase tracking-[0.14em] text-primary">{title}</div>}
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function LabelBulletList({ items }: { items: string[] }) {
+  return (
+    <ul className="space-y-2 pl-5 text-[13px] leading-6 text-foreground/85">
+      {items.map((item, index) => (
+        <li key={`${item}-${index}`} className="list-disc">
+          {item}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function LabelCategoryRow({ category, content }: { category: string; content: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-secondary/10 p-3">
+      <div className="text-[12px] font-bold uppercase tracking-[0.14em] text-primary">{category}</div>
+      <div className="mt-1 text-[13px] leading-6 text-foreground/85">{content}</div>
     </div>
   );
 }
