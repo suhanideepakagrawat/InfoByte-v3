@@ -23,6 +23,9 @@ from app.retrievers.stackoverflow import handle_stackoverflow_query
 from app.retrievers.reddit import handle_reddit_query
 from app.retrievers.google_search import handle_google_search
 from app.retrievers.academic_research import handle_academic_research
+from app.retrievers.medical_research import handle_medical_research
+from app.retrievers.medicine import handle_medicine_query
+
 
 # --- Supabase Initialization ---
 try:
@@ -157,3 +160,15 @@ def direct_google(q: str): return _inject_intent(handle_google_search(q), "googl
 @app.get("/api/retriever/academic_research")
 def direct_academic_research(q: str):
     return _inject_intent(handle_academic_research(q), "academic_research")
+
+
+@app.get("/api/retriever/medical_research")
+async def direct_medical_research(q: str):
+    result = await handle_medical_research(q)
+    return _inject_intent(result, "medical_research")
+
+@app.get("/api/retriever/medicine")
+async def direct_medicine(q: str):
+    result = await handle_medicine_query(q)
+    return _inject_intent(result, "medicine")
+

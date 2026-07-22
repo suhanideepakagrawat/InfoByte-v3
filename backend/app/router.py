@@ -8,6 +8,9 @@ from typing import Optional
 from app.api.classifier import intent_classifier
 from app.pipeline.summarizer import generate_engine_synthesis
 from app.retrievers.academic_research import handle_academic_research
+from app.retrievers.medical_research import handle_medical_research
+from app.retrievers.medicine import handle_medicine_query
+import asyncio
 
 # Retrievers
 from app.retrievers.oracle import handle_oracle_query
@@ -17,7 +20,10 @@ from app.retrievers.news import handle_news_query
 from app.retrievers.stackoverflow import handle_stackoverflow_query
 from app.retrievers.reddit import handle_reddit_query
 from app.retrievers.google_search import handle_google_search
-
+def _run_medical_research(query: str):
+    return asyncio.run(handle_medical_research(query))
+def _run_medicine(query: str):
+    return asyncio.run(handle_medicine_query(query))
 
 def _inject_intent(response: dict, intent: str) -> dict:
     """Ensures every response maintains the intent key for the frontend parsing."""
@@ -55,6 +61,8 @@ INTENT_SOURCE_ORDER = {
     "discussion_social": ["news", "reddit", "google_search"],
     "google_search": ["google_search"],
     "academic_research": ["academic_research", "google_search"],
+    "medical_research": ["medical_research", "google_search"],
+    "medicine": ["medicine", "google_search"]
 }
 
 
@@ -89,17 +97,15 @@ def route_query(user_query: str, confirmed_intent: Optional[str] = None, skip_sy
         elif intent == "discussion_social":
             scraper_map["news"] = handle_news_query
             scraper_map["reddit"] = lambda q: handle_reddit_query(q, "discussion_social")
-        elif intent == "discussion_social":
-            scraper_map["news"] = handle_news_query
-            scraper_map["reddit"] = lambda q: handle_reddit_query(
-                q, "discussion_social"
-            )
-
         elif intent == "academic_research":
             scraper_map["academic_research"] = handle_academic_research
 
-        elif intent == "google_search":
-            pass
+        elif intent == "medical_research":
+            scraper_map["medical_research"] = _run_medical_research
+        elif intent == "medicine":
+            scraper_map["medicine"] = _run_medicine
+
+
         elif intent == "google_search":
             pass
 

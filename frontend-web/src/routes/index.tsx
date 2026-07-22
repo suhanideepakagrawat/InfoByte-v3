@@ -18,11 +18,11 @@ export const Route = createFileRoute("/")({
 });
 
 const API_BASE =
-  "https://infobyte-v3.onrender.com/api";
+  "http://127.0.0.1:8000/api";
 
 const ALL_TAXONOMY_INTENTS = [
   "technical_code", "technical_oracle", "discussion_social",
-  "general_wiki", "movies", "weather", "google_search", "academic_research"
+  "general_wiki", "movies", "weather", "google_search", "academic_research", "medical_research", "medicine"
 ];
 
 const SCRAPER_MAP: Record<string, string[]> = {
@@ -33,8 +33,38 @@ const SCRAPER_MAP: Record<string, string[]> = {
   "weather": ["weather"],
   "discussion_social": ["news", "reddit"],
   "google_search": ["google_search"],
-  "academic_research": ["academic_research", "google_search"]
+  "academic_research": ["academic_research", "google_search"],
+  "medical_research": ["medical_research", "google_search"],
+  "medicine": ["medicine"]
 };
+
+interface MedicineIngredient {
+  name?: string | null;
+  strength?: string | null;
+}
+
+interface MedicineIngredients {
+  active?: MedicineIngredient[] | null;
+  inactive?: MedicineIngredient[] | null;
+  source?: string | null;
+}
+
+interface MedicineData {
+  brand_name?: string | null;
+  generic_name?: string | null;
+  name?: string | null;
+  manufacturer?: string | null;
+  route?: string | null;
+  active_ingredients?: any;
+  ingredients?: MedicineIngredients | null;
+  uses?: any;
+  dosage?: any;
+  side_effects?: any;
+  warnings?: any;
+  precautions?: string | null;
+  official_label_url?: string | null;
+  error?: string | null;
+}
 
 function SearchView() {
   const [query, setQuery] = useState("");
@@ -56,6 +86,14 @@ function SearchView() {
   const [isReSynthesizingWiki, setIsReSynthesizingWiki] = useState<boolean>(false);
 
   const toggle = (k: string) => setOpenContracts((s) => ({ ...s, [k]: !s[k] }));
+
+  const medicalResearchData = results?.payload?.medical_research ?? results?.medical_research;
+  const medicineSourceData = results?.payload?.medicine ?? results?.medicine;
+  const medicineData: MedicineData | null =
+    (medicineSourceData?.payload?.medicine as MedicineData | null) ??
+    (medicineSourceData?.medicine as MedicineData | null) ??
+    (medicineSourceData?.display_payload?.medicine as MedicineData | null) ??
+    (medicineSourceData as MedicineData | null);
 
   const handleClassify = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -397,6 +435,21 @@ function SearchView() {
               onSelectArticle={(title, articleUrl) => {
                 handleSelectWikiArticle(title, articleUrl);
               }}
+            />
+          )}
+          {medicalResearchData && (
+            <MedicalResearchBlock
+              data={medicalResearchData}
+              open={openContracts.medical_research}
+              onToggle={() => toggle("medical_research")}
+            />
+          )}
+          {medicineSourceData && (
+            <MedicineBlock
+              data={medicineData}
+              contractData={medicineSourceData}
+              open={openContracts.medicine}
+              onToggle={() => toggle("medicine")}
             />
           )}
           
@@ -1114,6 +1167,660 @@ function AcademicResearchBlock({ data, open, onToggle }: { data: any; open?: boo
     </ResultCard>
   );
 }
+
+
+
+function MedicalResearchBlock({
+  data,
+  open,
+  onToggle
+}: {
+  data: any;
+  open?: boolean;
+  onToggle: () => void;
+}) {
+  const payload = data?.display_payload || {};
+
+  const sections = payload?.sections || data?.sections || {};
+
+  const publications = Array.isArray(sections?.europe_pmc?.results)
+    ? sections.europe_pmc.results
+    : Array.isArray(data?.source_results?.europe_pmc)
+    ? data.source_results.europe_pmc
+    : [];
+
+  const trials = Array.isArray(sections?.clinical_trials?.results)
+    ? sections.clinical_trials.results
+    : Array.isArray(data?.source_results?.clinical_trials)
+    ? data.source_results.clinical_trials
+    : [];
+  if (data?.error) {
+    return (
+      <ResultCard
+        icon={<BookOpen className="h-5 w-5" />}
+        title="Medical Research Retrieval Failed"
+        source="Medical Research Engine"
+        tone="apricot"
+        open={open}
+        onToggle={onToggle}
+        contract={data}
+      >
+        <div className="bg-red-50 text-red-800 p-4 border border-red-200 rounded-xl">
+          {data.error}
+        </div>
+      </ResultCard>
+    );
+  }
+
+  return (
+    <ResultCard
+      icon={<BookOpen className="h-5 w-5" />}
+      title="Medical Research"
+      source="Europe PMC + ClinicalTrials.gov"
+      open={open}
+      onToggle={onToggle}
+      contract={data}
+    >
+      {/* EUROPE PMC */}
+      {publications.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-4">
+            <BookOpen className="h-5 w-5 text-primary" />
+
+            <h4 className="text-[16px] font-bold">
+              Medical Publications
+            </h4>
+
+            <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-[11px] font-bold">
+              {publications.length} results
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            {publications.map((paper: any, idx: number) => (
+              <article
+                key={paper?.id || paper?.pmid || idx}
+                className="rounded-2xl border border-border bg-white p-5 shadow-sm"
+              >
+                <div className="flex flex-wrap gap-2 mb-3">
+
+                  <span className="rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[10px] font-bold uppercase">
+                    Europe PMC
+                  </span>
+
+                  {paper?.publication_date && (
+                    <span className="rounded-md bg-secondary px-2 py-1 text-[11px]">
+                      {paper.publication_date}
+                    </span>
+                  )}
+
+                  {paper?.is_open_access && (
+                    <span className="rounded-md bg-emerald-50 text-emerald-700 px-2 py-1 text-[11px] font-bold">
+                      Open Access
+                    </span>
+                  )}
+
+                </div>
+
+                <h5 className="text-[16px] font-bold text-primary leading-snug">
+                  {paper?.title || "Untitled publication"}
+                </h5>
+
+                <p className="mt-2 text-[13px] text-foreground/80">
+                  {paper?.authors || "Authors unavailable"}
+                </p>
+
+                <div className="mt-4 grid sm:grid-cols-2 gap-2 text-[12px] text-muted-foreground">
+
+                  <div>
+                    <strong>Journal:</strong>{" "}
+                    {paper?.journal || "Not available"}
+                  </div>
+
+                  <div>
+                    <strong>Citations:</strong>{" "}
+                    {paper?.citation_count ?? 0}
+                  </div>
+
+                  {paper?.pmid && (
+                    <div>
+                      <strong>PMID:</strong> {paper.pmid}
+                    </div>
+                  )}
+
+                  {paper?.doi && (
+                    <div className="break-all">
+                      <strong>DOI:</strong> {paper.doi}
+                    </div>
+                  )}
+
+                </div>
+
+                {paper?.url && (
+                  <a
+                    href={paper.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 inline-flex items-center gap-2 bg-primary text-white rounded-lg px-4 py-2.5 text-[12px] font-bold"
+                  >
+                    Open Publication
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </a>
+                )}
+
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CLINICAL TRIALS */}
+      {trials.length > 0 && (
+        <div>
+
+          <div className="flex items-center gap-3 mb-4">
+            <Database className="h-5 w-5 text-primary" />
+
+            <h4 className="text-[16px] font-bold">
+              Clinical Trials
+            </h4>
+
+            <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-[11px] font-bold">
+              {trials.length} results
+            </span>
+          </div>
+
+          <div className="space-y-4">
+
+            {trials.map((trial: any, idx: number) => (
+              <article
+                key={trial?.nct_id || idx}
+                className="rounded-2xl border border-border bg-white p-5 shadow-sm"
+              >
+
+                <div className="flex flex-wrap gap-2 mb-3">
+
+                  <span className="rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[10px] font-bold uppercase">
+                    ClinicalTrials.gov
+                  </span>
+
+                  {trial?.status && (
+                    <span className="rounded-md bg-secondary px-2 py-1 text-[11px] font-bold">
+                      {String(trial.status).replaceAll("_", " ")}
+                    </span>
+                  )}
+
+                  {trial?.nct_id && (
+                    <span className="text-[11px] font-mono text-muted-foreground">
+                      {trial.nct_id}
+                    </span>
+                  )}
+
+                </div>
+
+                <h5 className="text-[16px] font-bold text-primary leading-snug">
+                  {trial?.title || "Untitled clinical trial"}
+                </h5>
+
+                {trial?.summary && (
+                  <div className="mt-4 bg-secondary/10 border border-border/60 rounded-xl p-4">
+                    <ExpandableHtml
+                      htmlContent={formatMainText(trial.summary)}
+                    />
+                  </div>
+                )}
+
+                <div className="mt-4 grid sm:grid-cols-2 gap-2 text-[12px] text-muted-foreground">
+
+                  <div>
+                    <strong>Study type:</strong>{" "}
+                    {trial?.study_type || "Not available"}
+                  </div>
+
+                  <div>
+                    <strong>Sponsor:</strong>{" "}
+                    {trial?.sponsor || "Not available"}
+                  </div>
+
+                  <div>
+                    <strong>Enrollment:</strong>{" "}
+                    {trial?.enrollment ?? "Not available"}
+                  </div>
+
+                  <div>
+                    <strong>Phase:</strong>{" "}
+                    {trial?.phases?.length
+                      ? trial.phases.join(", ")
+                      : "Not specified"}
+                  </div>
+
+                  <div>
+                    <strong>Start:</strong>{" "}
+                    {trial?.start_date || "Not available"}
+                  </div>
+
+                  <div>
+                    <strong>Completion:</strong>{" "}
+                    {trial?.completion_date || "Not available"}
+                  </div>
+
+                </div>
+
+                {trial?.conditions?.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+
+                    {trial.conditions
+                      .slice(0, 8)
+                      .map(
+                        (
+                          condition: string,
+                          conditionIdx: number
+                        ) => (
+                          <span
+                            key={`${condition}-${conditionIdx}`}
+                            className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground"
+                          >
+                            {condition}
+                          </span>
+                        )
+                      )}
+
+                  </div>
+                )}
+
+                {trial?.url && (
+                  <a
+                    href={trial.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 inline-flex items-center gap-2 bg-primary text-white rounded-lg px-4 py-2.5 text-[12px] font-bold"
+                  >
+                    Open Clinical Trial
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </a>
+                )}
+
+              </article>
+            ))}
+
+          </div>
+        </div>
+      )}
+
+      {publications.length === 0 && trials.length === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-amber-900">
+          No Europe PMC publications or clinical trial records were returned.
+        </div>
+      )}
+
+    </ResultCard>
+  );
+}
+
+
+
+function MedicineBlock({
+  data,
+  contractData,
+  open,
+  onToggle
+}: {
+  data?: MedicineData | null;
+  contractData: any;
+  open?: boolean;
+  onToggle: () => void;
+}) {
+  const medicine = data && typeof data === "object" ? data : {};
+  const brandName = getDisplayMedicineText(medicine?.brand_name);
+  const genericName = getDisplayMedicineText(medicine?.generic_name);
+  const name = getDisplayMedicineText(medicine?.name);
+  const manufacturer = getDisplayMedicineText(medicine?.manufacturer);
+  const route = getDisplayMedicineText(getMedicineRouteValue(medicine?.route));
+  const activeIngredients = getDisplayMedicineText(getMedicineActiveIngredients(medicine?.active_ingredients));
+  const uses = getDisplayMedicineText(medicine?.uses);
+  const dosage = medicine?.dosage || {};
+  const structuredDosageRows = [
+    { label: "Amount per dose", value: getDisplayMedicineText(dosage?.amount_per_dose) },
+    { label: "Frequency", value: getDisplayMedicineText(dosage?.frequency) },
+    { label: "Maximum dose", value: getDisplayMedicineText(dosage?.maximum_dose) },
+  ].filter((row) => row.value);
+  const labelInstructions = getDisplayMedicineText(dosage?.label_instructions);
+  const sideEffects = getDisplayMedicineText(medicine?.side_effects);
+  const warnings = getDisplayMedicineText(medicine?.warnings);
+  const precautions = getDisplayMedicineText(medicine?.precautions);
+  const officialLabelUrl = getDisplayMedicineText(medicine?.official_label_url) || getDisplayMedicineText(contractData?.official_label_url);
+  const title = brandName || name || genericName || "Medicine Information";
+  const ingredientSections = getMedicineIngredientSections(medicine);
+
+  if (medicine?.error || contractData?.error) {
+    return (
+      <ResultCard
+        icon={<BookOpen className="h-5 w-5" />}
+        title="Medicine Retrieval Failed"
+        source="openFDA + DailyMed"
+        tone="apricot"
+        open={open}
+        onToggle={onToggle}
+        contract={contractData || medicine}
+      >
+        <div className="bg-red-50 text-red-800 p-4 border border-red-200 rounded-xl text-[14px] font-medium">
+          {medicine?.error || contractData?.error || "Unable to retrieve medicine information."}
+        </div>
+      </ResultCard>
+    );
+  }
+
+  return (
+    <ResultCard
+      icon={<BookOpen className="h-5 w-5" />}
+      title={title}
+      source="openFDA + DailyMed"
+      sourceUrl={officialLabelUrl || undefined}
+      open={open}
+      onToggle={onToggle}
+      contract={contractData || medicine}
+    >
+      <div className="space-y-5">
+        <div className="rounded-2xl border border-border bg-secondary/10 p-5 shadow-sm">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {brandName && renderMedicineSummaryItem("Brand Name", brandName)}
+            {genericName && renderMedicineSummaryItem("Generic Name", genericName)}
+            {activeIngredients && renderMedicineSummaryItem("Active Ingredients", activeIngredients)}
+            {manufacturer && renderMedicineSummaryItem("Manufacturer", manufacturer)}
+            {route && renderMedicineSummaryItem("Route", route)}
+          </div>
+        </div>
+
+        {uses && (
+          <MedicineAccordionSection title="Uses">
+            <ExpandableHtml htmlContent={formatMainText(uses)} />
+          </MedicineAccordionSection>
+        )}
+
+        {(structuredDosageRows.length > 0 || labelInstructions) && (
+          <MedicineAccordionSection title="Dosage & Administration">
+            {structuredDosageRows.length > 0 && (
+              <div className="mb-4 rounded-xl border border-border bg-white/80 p-4 shadow-sm">
+                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Structured Summary</div>
+                <div className="mt-3 space-y-2 text-[13px] text-foreground/85">
+                  {structuredDosageRows.map((row) => (
+                    <div key={row.label} className="flex flex-col gap-1 border-b border-border/60 pb-2 last:border-0 last:pb-0 sm:flex-row sm:justify-between">
+                      <span className="font-semibold text-foreground/90">{row.label}</span>
+                      <span className="text-muted-foreground">{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {labelInstructions && (
+              <div className="rounded-xl border border-border bg-secondary/10 p-4 shadow-sm">
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Official label instructions</div>
+                <ExpandableHtml htmlContent={formatMainText(labelInstructions)} />
+              </div>
+            )}
+          </MedicineAccordionSection>
+        )}
+
+        {sideEffects && (
+          <MedicineAccordionSection title="Side Effects">
+            <ExpandableHtml htmlContent={formatMainText(sideEffects)} />
+          </MedicineAccordionSection>
+        )}
+
+        {warnings && (
+          <MedicineAccordionSection title="Warnings">
+            <ExpandableHtml htmlContent={formatMainText(warnings)} />
+          </MedicineAccordionSection>
+        )}
+
+        {precautions && (
+          <MedicineAccordionSection title="Precautions">
+            <ExpandableHtml htmlContent={formatMainText(precautions)} />
+          </MedicineAccordionSection>
+        )}
+
+        {(ingredientSections.active.length > 0 || ingredientSections.inactive.length > 0) && (
+          <MedicineAccordionSection title="Ingredients">
+            <div className="space-y-4">
+              {ingredientSections.active.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">ACTIVE INGREDIENTS</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {ingredientSections.active.map((ingredient, ingredientIdx) => (
+                      <span
+                        key={`${ingredient.name || "ingredient"}-${ingredientIdx}`}
+                        className="rounded-full border border-border bg-secondary/20 px-3 py-1.5 text-[12px] font-medium text-foreground/90"
+                      >
+                        <span>{ingredient.name}</span>
+                        {ingredient.strength && <span className="ml-2 text-muted-foreground">— {ingredient.strength}</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {ingredientSections.inactive.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">INACTIVE INGREDIENTS</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {ingredientSections.inactive.map((ingredient, ingredientIdx) => (
+                      <span
+                        key={`${ingredient.name || "ingredient"}-${ingredientIdx}`}
+                        className="rounded-full border border-border bg-secondary/20 px-3 py-1.5 text-[12px] font-medium text-foreground/90"
+                      >
+                        <span>{ingredient.name}</span>
+                        {ingredient.strength && <span className="ml-2 text-muted-foreground">— {ingredient.strength}</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </MedicineAccordionSection>
+        )}
+
+        {officialLabelUrl && (
+          <a
+            href={officialLabelUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-[12px] font-bold text-white transition hover:brightness-105"
+          >
+            Open Official DailyMed Label
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </a>
+        )}
+      </div>
+    </ResultCard>
+  );
+}
+
+function MedicineAccordionSection({ title, children }: { title: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="text-[14px] font-semibold tracking-tight text-foreground">{title}</span>
+        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-300 ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && <div className="border-t border-border/70 px-4 py-4">{children}</div>}
+    </div>
+  );
+}
+
+function getDisplayMedicineText(value: any): string | null {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text && text !== "null" && text !== "undefined" ? text : null;
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => getDisplayMedicineText(item))
+      .filter(Boolean) as string[];
+    return parts.length > 0 ? parts.join("\n") : null;
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, any>)
+      .map(([key, nestedValue]) => {
+        const text = getDisplayMedicineText(nestedValue);
+        return text ? `${key}: ${text}` : null;
+      })
+      .filter(Boolean) as string[];
+
+    return entries.length > 0 ? entries.join("\n") : null;
+  }
+
+  const text = String(value).trim();
+  return text && text !== "null" && text !== "undefined" ? text : null;
+}
+
+function getMedicineRouteValue(value: any): string | null {
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => getDisplayMedicineText(item))
+      .filter(Boolean) as string[];
+    return parts.length > 0 ? parts.join(", ") : null;
+  }
+
+  return getDisplayMedicineText(value);
+}
+
+function getMedicineActiveIngredients(value: any): string | null {
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => getMedicineIngredientToken(item))
+      .filter(Boolean) as string[];
+    return parts.length > 0 ? parts.join(", ") : null;
+  }
+
+  if (value === null || value === undefined) return null;
+  return getMedicineIngredientToken(value);
+}
+
+function getMedicineIngredientToken(value: any): string | null {
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text && text !== "null" && text !== "undefined" ? text : null;
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => getMedicineIngredientToken(item))
+      .filter(Boolean) as string[];
+    return parts.length > 0 ? parts.join(", ") : null;
+  }
+
+  if (value && typeof value === "object") {
+    const candidateKeys = [
+      "name",
+      "ingredient",
+      "substance_name",
+      "active_ingredient",
+      "active_ingredient_name",
+      "ingredient_name",
+      "substance",
+      "strength",
+    ];
+
+    const parts = candidateKeys
+      .map((key) => getDisplayMedicineText(value[key]))
+      .filter(Boolean) as string[];
+
+    if (parts.length > 0) {
+      return parts.join(" • ");
+    }
+
+    const fallback = getDisplayMedicineText(value);
+    return fallback;
+  }
+
+  return null;
+}
+
+function renderMedicineSummaryItem(label: string, value: string) {
+  return (
+    <div className="rounded-xl border border-border bg-white px-4 py-3 shadow-sm">
+      <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-[14px] font-semibold tracking-tight text-foreground/90">{value}</div>
+    </div>
+  );
+}
+
+function getMedicineIngredientSections(medicine: Record<string, any> | null | undefined) {
+  const normalizedIngredients = normalizeMedicineIngredients(medicine?.ingredients);
+  const fallbackIngredients = normalizeMedicineIngredientsFromLegacy(medicine?.active_ingredients);
+
+  return {
+    active: normalizedIngredients.active.length > 0 ? normalizedIngredients.active : fallbackIngredients.active,
+    inactive: normalizedIngredients.inactive.length > 0 ? normalizedIngredients.inactive : fallbackIngredients.inactive,
+  };
+}
+
+function normalizeMedicineIngredients(ingredients: MedicineIngredients | null | undefined) {
+  const active = (ingredients?.active || []).map((ingredient) => normalizeMedicineIngredient(ingredient));
+  const inactive = (ingredients?.inactive || []).map((ingredient) => normalizeMedicineIngredient(ingredient));
+
+  return { active, inactive };
+}
+
+function normalizeMedicineIngredientsFromLegacy(value: unknown) {
+  if (typeof value === "string") {
+    return { active: [normalizeMedicineIngredient(value)], inactive: [] };
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      active: value.map((item) => normalizeMedicineIngredient(item)),
+      inactive: [],
+    };
+  }
+
+  if (value && typeof value === "object") {
+    return {
+      active: [normalizeMedicineIngredient(value)],
+      inactive: [],
+    };
+  }
+
+  return { active: [], inactive: [] };
+}
+
+function normalizeMedicineIngredient(value: unknown): MedicineIngredient {
+  if (typeof value === "string") {
+    return {
+      name: getDisplayMedicineText(value),
+      strength: null,
+    };
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return {
+      name: getDisplayMedicineText(record.name ?? record.ingredient ?? record.ingredient_name ?? record.substance_name),
+      strength: getDisplayMedicineText(record.strength ?? record.strength_value ?? record.amount),
+    };
+  }
+
+  return {
+    name: getDisplayMedicineText(value),
+    strength: null,
+  };
+}
+
 
 function GoogleSearchBlock({ data, open, onToggle }: { data: any; open?: boolean; onToggle: () => void }) {
   const payload = data.display_payload || {};
