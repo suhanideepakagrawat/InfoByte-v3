@@ -103,6 +103,69 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
 
 
+
+def _identity_values(
+    result: Dict[str, Any],
+) -> List[str]:
+    """Return trusted product identity values from openFDA metadata."""
+    openfda = result.get("openfda") or {}
+    values: List[str] = []
+
+    for field in (
+        "brand_name",
+        "generic_name",
+        "substance_name",
+    ):
+        values.extend(_as_list(openfda.get(field)))
+
+    return values
+
+
+def _has_identity_match(
+    result: Dict[str, Any],
+    query: str,
+) -> bool:
+    """
+    Require the query to match a trusted openFDA identity field.
+
+    General label text is not sufficient to establish medicine identity.
+    """
+    normalized_query = _normalize_name(query)
+
+    if not normalized_query:
+        return False
+
+    query_tokens = set(normalized_query.split())
+
+    for value in _identity_values(result):
+        normalized_value = _normalize_name(value)
+
+        if not normalized_value:
+            continue
+
+        if normalized_value == normalized_query:
+            return True
+
+        if (
+            normalized_query in normalized_value
+            or normalized_value in normalized_query
+        ):
+            return True
+
+        value_tokens = set(normalized_value.split())
+
+        if (
+            query_tokens
+            and (
+                query_tokens.issubset(value_tokens)
+                or value_tokens.issubset(query_tokens)
+            )
+        ):
+            return True
+
+    return False
+
+
 def _calculate_match_score(
     result: Dict[str, Any],
     query: str,
@@ -510,8 +573,23 @@ async def search_openfda_drug(
 
         unique_results.append(result)
 
+    # Only rank labels whose trusted identity fields actually
+    # match the requested medicine. Label completeness alone must
+    # never turn an unrelated broad-search result into a match.
+    identity_matches = [
+        result
+        for result in unique_results
+        if _has_identity_match(
+            result,
+            query,
+        )
+    ]
+
+    if not identity_matches:
+        return None
+
     best_result = max(
-        unique_results,
+        identity_matches,
         key=lambda item: _calculate_match_score(
             item,
             query,

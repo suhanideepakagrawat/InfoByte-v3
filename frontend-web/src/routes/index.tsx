@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import {
   Search, Cloud, Newspaper, BookOpen, MessageSquare, Code2, ArrowUpRight,
-  ChevronDown, Sparkles, Timer, Radar, Wind, Droplets, Thermometer, ArrowUp, Check, Globe, Database
+  ChevronDown, Sparkles, Timer, Radar, Wind, Droplets, Thermometer, ArrowUp, Check, Globe, Database, Salad, Scale, Loader2
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -17,25 +17,25 @@ export const Route = createFileRoute("/")({
   component: SearchView,
 });
 
-const API_BASE =
-  "https://infobyte-v3.onrender.com/api";
+const API_BASE = "http://127.0.0.1:8000/api";
 
 const ALL_TAXONOMY_INTENTS = [
   "technical_code", "technical_oracle", "discussion_social",
-  "general_wiki", "movies", "weather", "google_search", "academic_research", "medical_research", "medicine"
+  "general_wiki", "movies", "weather", "google_search", "academic_research", "medical_research", "medicine", "food_nutrition"
 ];
 
-const SCRAPER_MAP: Record<string, string[]> = {
-  "technical_oracle": ["oracle", "stackoverflow"],
-  "technical_code": ["stackoverflow", "reddit"],
-  "general_wiki": ["wiki"],
-  "movies": ["wiki"],
-  "weather": ["weather"],
-  "discussion_social": ["news", "reddit"],
-  "google_search": ["google_search"],
-  "academic_research": ["academic_research", "google_search"],
-  "medical_research": ["medical_research", "google_search"],
-  "medicine": ["medicine"]
+const INTENT_DISPLAY_NAMES: Record<string, string> = {
+  technical_code: "Technical Code",
+  technical_oracle: "Technical Oracle",
+  discussion_social: "Social Discussion",
+  general_wiki: "General Wiki",
+  movies: "Movies",
+  weather: "Weather",
+  google_search: "Google Search",
+  academic_research: "Academic Research",
+  medical_research: "Medical Research",
+  medicine: "Medicine",
+  food_nutrition: "Food & Nutrition"
 };
 
 interface MedicineIngredient {
@@ -49,7 +49,17 @@ interface MedicineIngredients {
   source?: string | null;
 }
 
+interface MedicineIngredientLabel {
+  ingredient?: string | null;
+  query?: string | null;
+  openfda?: any;
+  dailymed?: any;
+  medicine?: MedicineData | null;
+  errors?: Record<string, string>;
+}
+
 interface MedicineData {
+  medicine_name?: string | null;
   brand_name?: string | null;
   generic_name?: string | null;
   name?: string | null;
@@ -63,7 +73,86 @@ interface MedicineData {
   warnings?: any;
   precautions?: string | null;
   official_label_url?: string | null;
+  official_label?: {
+    source?: string | null;
+    url?: string | null;
+    dailymed_set_id?: string | null;
+  } | null;
+  ingredient_labels?: MedicineIngredientLabel[] | null;
+  combination_label_notice?: string | null;
+  product_type?: string | null;
+  structured_sections?: {
+    uses?: { title?: string; items?: string[] };
+    dosage?: { title?: string; raw_text?: string | null; facts?: Record<string, string | null> };
+    side_effects?: { title?: string; items?: string[] };
+    warnings?: { title?: string; raw_text?: string | null };
+    precautions?: { title?: string; raw_text?: string | null };
+  } | null;
   error?: string | null;
+}
+
+interface NutritionPortion {
+  description?: string | null;
+  gram_weight?: number | null;
+  unit?: string | null;
+  modifier?: string | number | null;
+  amount?: string | number | null;
+}
+
+interface NutritionData {
+  [key: string]: unknown;
+  food_name?: string;
+  description?: string;
+  food_category?: string;
+  data_type?: string;
+  brand_owner?: string;
+  fdc_id?: number | string;
+  nutrients?: Record<string, unknown>;
+  nutrient_basis?: { display?: string } | string;
+  requested_portion?: { display?: string; label?: string; amount?: number } | null;
+  requested_portion_nutrients?: Record<string, unknown>;
+  usda_defined_portions?: NutritionPortion[];
+  alternative_matches?: Array<Record<string, unknown>>;
+  error?: string | null;
+}
+
+function normalizeNutritionPayload(data: unknown): NutritionData | null {
+  if (!data || typeof data !== "object") return null;
+
+  const candidatePaths = [
+    data,
+    (data as Record<string, unknown>).payload,
+    (data as Record<string, unknown>).payload?.nutrition,
+    (data as Record<string, unknown>).payload?.nutrition?.payload,
+    (data as Record<string, unknown>).payload?.nutrition?.nutrition,
+    (data as Record<string, unknown>).payload?.nutrition?.payload?.nutrition,
+    (data as Record<string, unknown>).display_payload,
+    (data as Record<string, unknown>).display_payload?.nutrition,
+    (data as Record<string, unknown>).display_payload?.nutrition?.payload,
+    (data as Record<string, unknown>).display_payload?.nutrition?.nutrition,
+  ];
+
+  for (const candidate of candidatePaths) {
+    if (candidate && typeof candidate === "object") {
+      if (
+        (candidate as Record<string, unknown>).nutrients ||
+        (candidate as Record<string, unknown>).food_name ||
+        (candidate as Record<string, unknown>).fdc_id ||
+        (candidate as Record<string, unknown>).nutrient_basis
+      ) {
+        return candidate as NutritionData;
+      }
+
+      if (
+        (candidate as Record<string, unknown>).nutrition &&
+        typeof (candidate as Record<string, unknown>).nutrition === "object"
+      ) {
+        return (candidate as Record<string, unknown>).nutrition as NutritionData;
+      }
+    }
+  }
+
+  return data as NutritionData;
 }
 
 function SearchView() {
@@ -80,7 +169,6 @@ function SearchView() {
   const [latency, setLatency] = useState<number>(0);
   const [openContracts, setOpenContracts] = useState<Record<string, boolean>>({});
   
-  // States to manage Wiki isolation
   const [selectedWikiTitle, setSelectedWikiTitle] = useState<string | null>(null);
   const [selectedWikiContent, setSelectedWikiContent] = useState<string | null>(null);
   const [isReSynthesizingWiki, setIsReSynthesizingWiki] = useState<boolean>(false);
@@ -94,6 +182,14 @@ function SearchView() {
     (medicineSourceData?.medicine as MedicineData | null) ??
     (medicineSourceData?.display_payload?.medicine as MedicineData | null) ??
     (medicineSourceData as MedicineData | null);
+
+  const nutritionSourceData =
+    results?.payload?.nutrition ??
+    results?.payload?.food_nutrition ??
+    results?.nutrition ??
+    results?.food_nutrition;
+
+  const nutritionData: NutritionData | null = normalizeNutritionPayload(nutritionSourceData);
 
   const handleClassify = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,7 +232,6 @@ function SearchView() {
     const topPrediction = classification?.predictions?.[0];
     const confidenceScore = topPrediction ? topPrediction.score : 1.0;
     
-    // 1. Log correction
     fetch(`${API_BASE}/log-correction`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -144,7 +239,6 @@ function SearchView() {
     }).catch((err) => console.error("Logging error:", err));
 
     try {
-      // 2. Fetch via router.py to ensure error handling and concurrency are perfect
       const res = await fetch(`${API_BASE}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -159,9 +253,8 @@ function SearchView() {
       
       setResults(data);
       setSearchStage("display_results");
-      setIsSearching(false); // Unblock UI immediately to show sources
+      setIsSearching(false);
       
-      // 3. Request Gemini Synthesis in background
       if (data.payload && Object.keys(data.payload).length > 0) {
         const synthRes = await fetch(`${API_BASE}/synthesize`, {
           method: "POST",
@@ -190,8 +283,6 @@ function SearchView() {
     setSelectedWikiContent(null);
 
     try {
-      // Use the existing deployed Wikipedia retriever route.
-      // /wikipedia/article does not exist on the current backend and returns 404.
       const params = new URLSearchParams({
         q: title,
         url: articleUrl,
@@ -221,10 +312,6 @@ function SearchView() {
 
       setSelectedWikiTitle(articlePayload.title || title);
       setSelectedWikiContent(fullContent);
-
-      // Do NOT overwrite results.payload.wikipedia here.
-      // That object contains the original Wikipedia search/disambiguation card.
-      // The selected full article lives only in selectedWikiTitle/selectedWikiContent.
       toast.success(`Loaded complete Wikipedia article: ${articlePayload.title || title}`);
     } catch (err: any) {
       setSelectedWikiContent(null);
@@ -274,12 +361,10 @@ function SearchView() {
 
   return (
     <AppShell>
-      {/* Absolute Middle Loading Overlay Context */}
       {isClassifying && (
         <div className="fixed inset-0 bg-background/60 backdrop-blur-md z-50 flex flex-col items-center justify-center animate-in fade-in duration-200">
           <div className="glass-card rounded-2xl p-8 max-w-sm w-full text-center flex flex-col items-center justify-center gap-4 border border-primary/30 shadow-2xl animate-in zoom-in-95 duration-300">
             <div className="relative h-16 w-16 flex items-center justify-center">
-              {/* Animated Outer Periwinkle Spinning Circle Track */}
               <div className="absolute inset-0 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
               <Sparkles className="h-6 w-6 text-primary animate-pulse" />
             </div>
@@ -320,7 +405,7 @@ function SearchView() {
             </button>
           </div>
           <div className="mt-3 flex flex-wrap justify-center gap-2 text-[12px] text-muted-foreground">
-            {["weather in bangalore today", "ethanol fuel in india", "reddit thoughts on rust vs go", "ORA-00001 constraint error"].map((q) => (
+            {["calories in 150g banana", "protein in 250g chicken breast", "weather in bangalore today", "ORA-00001 constraint error"].map((q) => (
               <button key={q} type="button" disabled={isClassifying || isSearching} onClick={() => setQuery(q)} className="px-2.5 py-1 rounded-full border border-border bg-white/60 hover:bg-white transition">
                 {q}
               </button>
@@ -329,7 +414,6 @@ function SearchView() {
         </form>
       </section>
 
-      {/* Step 1: Verify Intent & Initial Summary */}
       {searchStage === "verify_intent" && classification && (
         <section className="mt-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
           {initialSummary && (
@@ -355,7 +439,7 @@ function SearchView() {
                 <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Target Domain Pathway:</label>
                 <select value={chosenIntent} onChange={(e) => setChosenIntent(e.target.value)} className="w-full p-3 rounded-xl border border-border bg-white text-sm outline-none focus:periwinkle-glow">
                   {[classification.top_intent, ...ALL_TAXONOMY_INTENTS.filter(i => i !== classification.top_intent)].map((intent) => (
-                    <option key={intent} value={intent}>{intent}</option>
+                    <option key={intent} value={intent}>{INTENT_DISPLAY_NAMES[intent] || intent}</option>
                   ))}
                 </select>
               </div>
@@ -379,7 +463,6 @@ function SearchView() {
         </section>
       )}
 
-      {/* Step 2: Display Results */}
       {searchStage === "display_results" && results && (
         <section className="mt-8 space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="flex items-center justify-between bg-white border border-border p-4 rounded-xl shadow-sm">
@@ -393,7 +476,6 @@ function SearchView() {
 
           <SectionLabel>Unified fulfillment results canvas</SectionLabel>
 
-          {/* Wiki Targeted Render Banner */}
           {selectedWikiTitle && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 flex flex-col items-start gap-4 animate-in fade-in zoom-in-95 shadow-sm">
               <div className="flex items-center gap-3">
@@ -423,7 +505,6 @@ function SearchView() {
             </div>
           )}
 
-          {/* Core Visual Blocks */}
           {results.payload?.weather && <WeatherBlock data={results.payload.weather} open={openContracts.weather} onToggle={() => toggle("weather")} />}
           {results.payload?.news && <NewsBlock data={results.payload.news} open={openContracts.news} onToggle={() => toggle("news")} />}
           
@@ -452,6 +533,15 @@ function SearchView() {
               onToggle={() => toggle("medicine")}
             />
           )}
+          {nutritionData && (
+            <NutritionBlock
+              data={nutritionData}
+              contractData={nutritionSourceData}
+              userQuery={query}
+              open={openContracts.food_nutrition}
+              onToggle={() => toggle("food_nutrition")}
+            />
+          )}
           
           {results.payload?.reddit && <RedditBlock data={results.payload.reddit} open={openContracts.reddit} onToggle={() => toggle("reddit")} />}
           {results.payload?.stackoverflow && <StackBlock data={results.payload.stackoverflow} open={openContracts.stack} onToggle={() => toggle("stack")} />}
@@ -459,7 +549,6 @@ function SearchView() {
           {results.payload?.academic_research && <AcademicResearchBlock data={results.payload.academic_research} open={openContracts.academic_research} onToggle={() => toggle("academic_research")} />}
           {results.payload?.google_search && <GoogleSearchBlock data={results.payload.google_search} open={openContracts.google_search} onToggle={() => toggle("google_search")} />}
 
-          {/* Bounded Gemini Synthesis Layer */}
           {isSynthesizing && !results.ai_synthesis && (
              <div className="soft-card rounded-2xl p-6 border-t-4 border-t-primary relative overflow-hidden bg-white animate-pulse mt-8">
                <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-muted-foreground">
@@ -500,28 +589,21 @@ function SearchView() {
   );
 }
 
-/* ---------- Advanced Markdown & Text Parsers ---------- */
+/* ---------- Text Parsers ---------- */
 
 function formatMainText(text: string) {
   if (!text) return "";
   let html = text
-    // Replace Markdown Links FIRST so they don't break with other regexes
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary font-semibold hover:underline inline-flex items-center gap-0.5">$1 <svg xmlns="http://www.w3.org/2000/svg" width="11" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></a>')
-    // Catch naked http links
     .replace(/(^|\s)(https?:\/\/[^\s]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary font-medium hover:underline break-all">$2</a>')
-    // Replace Headings safely
     .replace(/###\s*(.*)/g, '<h3 class="text-[14.5px] uppercase tracking-wider text-primary font-bold mt-6 mb-2">$1</h3>')
     .replace(/##\s*(.*)/g, '<h2 class="text-[15.5px] font-bold tracking-tight text-foreground mt-6 mb-2">$1</h2>')
     .replace(/#\s*(.*)/g, '<h1 class="text-[17px] font-bold tracking-tight text-foreground mt-6 mb-2">$1</h1>')
-    // Replace Bold (handles both *** and **)
     .replace(/\*\*\*(.*?)\*\*\*/g, '<strong class="font-bold text-foreground">$1</strong>')
     .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-foreground">$1</strong>')
-    // Replace Italic
     .replace(/\*(.*?)\*/g, '<em class="text-foreground/90">$1</em>')
-    // Replace Lists
     .replace(/(?:^|\n)\*\s+(.*)/g, '<li class="ml-4 list-disc mb-1.5 text-foreground/90">$1</li>')
     .replace(/(?:^|\n)-\s+(.*)/g, '<li class="ml-4 list-disc mb-1.5 text-foreground/90">$1</li>')
-    // Clean rogue orphan structural symbols
     .replace(/\n\n/g, '<div class="h-3"></div>')
     .replace(/\n/g, '<br/>');
 
@@ -885,12 +967,10 @@ function OracleBlock({ data, open, onToggle }: { data: any; open?: boolean; onTo
 
   return (
     <ResultCard icon={<Database className="h-5 w-5" />} title={payload.title || "Oracle Forums Fulfillment"} source="Oracle Gateway Fulfillment" sourceUrl={payload.source_url} tone="apricot" open={open} onToggle={onToggle} contract={data}>
-      {/* Original Question Container */}
       <div className="bg-white p-4 border border-border rounded-xl text-[14.5px] mb-4 shadow-sm">
         <ExpandableHtml htmlContent={formatMainText(payload.main_text)} />
       </div>
 
-      {/* Render the replies parsed directly from the Oracle forum */}
       {replies.map((replyText: string, idx: number) => {
         const lines = replyText.split("\n");
         const author = lines[0] || "Oracle Community Member";
@@ -921,7 +1001,6 @@ function OracleBlock({ data, open, onToggle }: { data: any; open?: boolean; onTo
   );
 }
 
-
 function AcademicResearchBlock({ data, open, onToggle }: { data: any; open?: boolean; onToggle: () => void }) {
   const payload = data?.display_payload || {};
   const metadata = payload?.metadata || data?.metadata || {};
@@ -943,8 +1022,6 @@ function AcademicResearchBlock({ data, open, onToggle }: { data: any; open?: boo
     );
   }
 
-  // The academic_research backend returns the unified paper list here:
-  // data.display_payload.results
   const papers = Array.isArray(payload?.results)
     ? payload.results
     : Array.isArray(data?.results)
@@ -959,10 +1036,7 @@ function AcademicResearchBlock({ data, open, onToggle }: { data: any; open?: boo
         .map((author: any) =>
           typeof author === "string"
             ? author
-            : author?.name ||
-              author?.display_name ||
-              author?.author_name ||
-              ""
+            : author?.name || author?.display_name || author?.author_name || ""
         )
         .filter(Boolean);
 
@@ -1019,15 +1093,11 @@ function AcademicResearchBlock({ data, open, onToggle }: { data: any; open?: boo
               "No abstract was provided by this source.";
 
             const published = formatDate(
-              paper?.published ||
-              paper?.publication_date ||
-              paper?.publication_year ||
-              paper?.year
+              paper?.published || paper?.publication_date || paper?.publication_year || paper?.year
             );
 
             const updated = formatDate(paper?.updated);
-            const citationCount =
-              paper?.citation_count ?? paper?.cited_by_count ?? null;
+            const citationCount = paper?.citation_count ?? paper?.cited_by_count ?? null;
 
             const categories = Array.isArray(paper?.categories)
               ? paper.categories
@@ -1037,13 +1107,7 @@ function AcademicResearchBlock({ data, open, onToggle }: { data: any; open?: boo
                   ? [paper.category]
                   : [];
 
-            const paperUrl =
-              paper?.url ||
-              paper?.paper_url ||
-              paper?.entry_id ||
-              paper?.doi_url ||
-              paper?.id;
-
+            const paperUrl = paper?.url || paper?.paper_url || paper?.entry_id || paper?.doi_url || paper?.id;
             const pdfUrl = paper?.pdf_url;
 
             return (
@@ -1158,29 +1222,17 @@ function AcademicResearchBlock({ data, open, onToggle }: { data: any; open?: boo
         </div>
       )}
 
-      {Array.isArray(metadata?.successful_sources) &&
-        metadata.successful_sources.length > 0 && (
-          <div className="mt-5 border-t border-border/60 pt-4 text-[11px] font-mono text-muted-foreground">
-            Successful sources: {metadata.successful_sources.join(", ")}
-          </div>
-        )}
+      {Array.isArray(metadata?.successful_sources) && metadata.successful_sources.length > 0 && (
+        <div className="mt-5 border-t border-border/60 pt-4 text-[11px] font-mono text-muted-foreground">
+          Successful sources: {metadata.successful_sources.join(", ")}
+        </div>
+      )}
     </ResultCard>
   );
 }
 
-
-
-function MedicalResearchBlock({
-  data,
-  open,
-  onToggle
-}: {
-  data: any;
-  open?: boolean;
-  onToggle: () => void;
-}) {
+function MedicalResearchBlock({ data, open, onToggle }: { data: any; open?: boolean; onToggle: () => void }) {
   const payload = data?.display_payload || {};
-
   const sections = payload?.sections || data?.sections || {};
 
   const publications = Array.isArray(sections?.europe_pmc?.results)
@@ -1194,6 +1246,7 @@ function MedicalResearchBlock({
     : Array.isArray(data?.source_results?.clinical_trials)
     ? data.source_results.clinical_trials
     : [];
+
   if (data?.error) {
     return (
       <ResultCard
@@ -1221,16 +1274,11 @@ function MedicalResearchBlock({
       onToggle={onToggle}
       contract={data}
     >
-      {/* EUROPE PMC */}
       {publications.length > 0 && (
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
             <BookOpen className="h-5 w-5 text-primary" />
-
-            <h4 className="text-[16px] font-bold">
-              Medical Publications
-            </h4>
-
+            <h4 className="text-[16px] font-bold">Medical Publications</h4>
             <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-[11px] font-bold">
               {publications.length} results
             </span>
@@ -1238,28 +1286,21 @@ function MedicalResearchBlock({
 
           <div className="space-y-4">
             {publications.map((paper: any, idx: number) => (
-              <article
-                key={paper?.id || paper?.pmid || idx}
-                className="rounded-2xl border border-border bg-white p-5 shadow-sm"
-              >
+              <article key={paper?.id || paper?.pmid || idx} className="rounded-2xl border border-border bg-white p-5 shadow-sm">
                 <div className="flex flex-wrap gap-2 mb-3">
-
                   <span className="rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[10px] font-bold uppercase">
                     Europe PMC
                   </span>
-
                   {paper?.publication_date && (
                     <span className="rounded-md bg-secondary px-2 py-1 text-[11px]">
                       {paper.publication_date}
                     </span>
                   )}
-
                   {paper?.is_open_access && (
                     <span className="rounded-md bg-emerald-50 text-emerald-700 px-2 py-1 text-[11px] font-bold">
                       Open Access
                     </span>
                   )}
-
                 </div>
 
                 <h5 className="text-[16px] font-bold text-primary leading-snug">
@@ -1271,91 +1312,48 @@ function MedicalResearchBlock({
                 </p>
 
                 <div className="mt-4 grid sm:grid-cols-2 gap-2 text-[12px] text-muted-foreground">
-
-                  <div>
-                    <strong>Journal:</strong>{" "}
-                    {paper?.journal || "Not available"}
-                  </div>
-
-                  <div>
-                    <strong>Citations:</strong>{" "}
-                    {paper?.citation_count ?? 0}
-                  </div>
-
-                  {paper?.pmid && (
-                    <div>
-                      <strong>PMID:</strong> {paper.pmid}
-                    </div>
-                  )}
-
-                  {paper?.doi && (
-                    <div className="break-all">
-                      <strong>DOI:</strong> {paper.doi}
-                    </div>
-                  )}
-
+                  <div><strong>Journal:</strong> {paper?.journal || "Not available"}</div>
+                  <div><strong>Citations:</strong> {paper?.citation_count ?? 0}</div>
+                  {paper?.pmid && <div><strong>PMID:</strong> {paper.pmid}</div>}
+                  {paper?.doi && <div className="break-all"><strong>DOI:</strong> {paper.doi}</div>}
                 </div>
 
                 {paper?.url && (
-                  <a
-                    href={paper.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-4 inline-flex items-center gap-2 bg-primary text-white rounded-lg px-4 py-2.5 text-[12px] font-bold"
-                  >
-                    Open Publication
-                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  <a href={paper.url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-2 bg-primary text-white rounded-lg px-4 py-2.5 text-[12px] font-bold">
+                    Open Publication <ArrowUpRight className="h-3.5 w-3.5" />
                   </a>
                 )}
-
               </article>
             ))}
           </div>
         </div>
       )}
 
-      {/* CLINICAL TRIALS */}
       {trials.length > 0 && (
         <div>
-
           <div className="flex items-center gap-3 mb-4">
             <Database className="h-5 w-5 text-primary" />
-
-            <h4 className="text-[16px] font-bold">
-              Clinical Trials
-            </h4>
-
+            <h4 className="text-[16px] font-bold">Clinical Trials</h4>
             <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-[11px] font-bold">
               {trials.length} results
             </span>
           </div>
 
           <div className="space-y-4">
-
             {trials.map((trial: any, idx: number) => (
-              <article
-                key={trial?.nct_id || idx}
-                className="rounded-2xl border border-border bg-white p-5 shadow-sm"
-              >
-
+              <article key={trial?.nct_id || idx} className="rounded-2xl border border-border bg-white p-5 shadow-sm">
                 <div className="flex flex-wrap gap-2 mb-3">
-
                   <span className="rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[10px] font-bold uppercase">
                     ClinicalTrials.gov
                   </span>
-
                   {trial?.status && (
                     <span className="rounded-md bg-secondary px-2 py-1 text-[11px] font-bold">
                       {String(trial.status).replaceAll("_", " ")}
                     </span>
                   )}
-
                   {trial?.nct_id && (
-                    <span className="text-[11px] font-mono text-muted-foreground">
-                      {trial.nct_id}
-                    </span>
+                    <span className="text-[11px] font-mono text-muted-foreground">{trial.nct_id}</span>
                   )}
-
                 </div>
 
                 <h5 className="text-[16px] font-bold text-primary leading-snug">
@@ -1364,85 +1362,36 @@ function MedicalResearchBlock({
 
                 {trial?.summary && (
                   <div className="mt-4 bg-secondary/10 border border-border/60 rounded-xl p-4">
-                    <ExpandableHtml
-                      htmlContent={formatMainText(trial.summary)}
-                    />
+                    <ExpandableHtml htmlContent={formatMainText(trial.summary)} />
                   </div>
                 )}
 
                 <div className="mt-4 grid sm:grid-cols-2 gap-2 text-[12px] text-muted-foreground">
-
-                  <div>
-                    <strong>Study type:</strong>{" "}
-                    {trial?.study_type || "Not available"}
-                  </div>
-
-                  <div>
-                    <strong>Sponsor:</strong>{" "}
-                    {trial?.sponsor || "Not available"}
-                  </div>
-
-                  <div>
-                    <strong>Enrollment:</strong>{" "}
-                    {trial?.enrollment ?? "Not available"}
-                  </div>
-
-                  <div>
-                    <strong>Phase:</strong>{" "}
-                    {trial?.phases?.length
-                      ? trial.phases.join(", ")
-                      : "Not specified"}
-                  </div>
-
-                  <div>
-                    <strong>Start:</strong>{" "}
-                    {trial?.start_date || "Not available"}
-                  </div>
-
-                  <div>
-                    <strong>Completion:</strong>{" "}
-                    {trial?.completion_date || "Not available"}
-                  </div>
-
+                  <div><strong>Study type:</strong> {trial?.study_type || "Not available"}</div>
+                  <div><strong>Sponsor:</strong> {trial?.sponsor || "Not available"}</div>
+                  <div><strong>Enrollment:</strong> {trial?.enrollment ?? "Not available"}</div>
+                  <div><strong>Phase:</strong> {trial?.phases?.length ? trial.phases.join(", ") : "Not specified"}</div>
+                  <div><strong>Start:</strong> {trial?.start_date || "Not available"}</div>
+                  <div><strong>Completion:</strong> {trial?.completion_date || "Not available"}</div>
                 </div>
 
                 {trial?.conditions?.length > 0 && (
                   <div className="mt-4 flex flex-wrap gap-2">
-
-                    {trial.conditions
-                      .slice(0, 8)
-                      .map(
-                        (
-                          condition: string,
-                          conditionIdx: number
-                        ) => (
-                          <span
-                            key={`${condition}-${conditionIdx}`}
-                            className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground"
-                          >
-                            {condition}
-                          </span>
-                        )
-                      )}
-
+                    {trial.conditions.slice(0, 8).map((condition: string, conditionIdx: number) => (
+                      <span key={`${condition}-${conditionIdx}`} className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground">
+                        {condition}
+                      </span>
+                    ))}
                   </div>
                 )}
 
                 {trial?.url && (
-                  <a
-                    href={trial.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-4 inline-flex items-center gap-2 bg-primary text-white rounded-lg px-4 py-2.5 text-[12px] font-bold"
-                  >
-                    Open Clinical Trial
-                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  <a href={trial.url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-2 bg-primary text-white rounded-lg px-4 py-2.5 text-[12px] font-bold">
+                    Open Clinical Trial <ArrowUpRight className="h-3.5 w-3.5" />
                   </a>
                 )}
-
               </article>
             ))}
-
           </div>
         </div>
       )}
@@ -1452,12 +1401,9 @@ function MedicalResearchBlock({
           No Europe PMC publications or clinical trial records were returned.
         </div>
       )}
-
     </ResultCard>
   );
 }
-
-
 
 function MedicineBlock({
   data,
@@ -1471,40 +1417,309 @@ function MedicineBlock({
   onToggle: () => void;
 }) {
   const medicine = data && typeof data === "object" ? data : {};
-  const brandName = getDisplayMedicineText(medicine?.brand_name);
+
+  const payloadRoot =
+    contractData?.payload && typeof contractData.payload === "object"
+      ? contractData.payload
+      : contractData || {};
+
+  const resolution =
+    payloadRoot?.indian_medicine_resolution ||
+    contractData?.indian_medicine_resolution ||
+    null;
+
+  const ingredientLabels: MedicineIngredientLabel[] = Array.isArray(
+    payloadRoot?.ingredient_labels
+  )
+    ? payloadRoot.ingredient_labels
+    : Array.isArray(medicine?.ingredient_labels)
+      ? medicine.ingredient_labels
+      : Array.isArray(contractData?.source_results?.ingredient_labels)
+        ? contractData.source_results.ingredient_labels
+        : [];
+
+  const isCombination =
+    Boolean(resolution?.search_terms?.is_combination) ||
+    ingredientLabels.length > 1 ||
+    (Array.isArray(resolution?.ingredients) && resolution.ingredients.length > 1);
+
+  const productName =
+    getDisplayMedicineText(medicine?.medicine_name) ||
+    getDisplayMedicineText(medicine?.brand_name) ||
+    getDisplayMedicineText(medicine?.name) ||
+    getDisplayMedicineText(resolution?.product?.medicine_name) ||
+    "Medicine Information";
+
   const genericName = getDisplayMedicineText(medicine?.generic_name);
-  const name = getDisplayMedicineText(medicine?.name);
-  const manufacturer = getDisplayMedicineText(medicine?.manufacturer);
+  const manufacturer =
+    getDisplayMedicineText(medicine?.manufacturer) ||
+    getDisplayMedicineText(resolution?.product?.manufacturer);
+
+  const productType =
+    getDisplayMedicineText(medicine?.product_type) ||
+    getDisplayMedicineText(resolution?.product?.type);
+
   const route = getDisplayMedicineText(getMedicineRouteValue(medicine?.route));
-  const activeIngredients = getDisplayMedicineText(getMedicineActiveIngredients(medicine?.active_ingredients));
+
+  const activeIngredientItems: MedicineIngredient[] = Array.isArray(
+    medicine?.active_ingredients
+  )
+    ? medicine.active_ingredients
+        .map((item: any) => {
+          if (typeof item === "string") {
+            return { name: item, strength: null };
+          }
+
+          return {
+            name: item?.name || item?.ingredient || item?.active_ingredient || null,
+            strength: item?.strength || null,
+          };
+        })
+        .filter((item: MedicineIngredient) => item.name)
+    : [];
+
+  const fallbackActiveIngredients = getDisplayMedicineText(
+    getMedicineActiveIngredients(medicine?.active_ingredients)
+  );
+
   const uses = getDisplayMedicineText(medicine?.uses);
   const dosage = medicine?.dosage || {};
-  const structuredDosageRows = [
-    { label: "Amount per dose", value: getDisplayMedicineText(dosage?.amount_per_dose) },
-    { label: "Frequency", value: getDisplayMedicineText(dosage?.frequency) },
-    { label: "Maximum dose", value: getDisplayMedicineText(dosage?.maximum_dose) },
-  ].filter((row) => row.value);
-  const labelInstructions = getDisplayMedicineText(dosage?.label_instructions);
   const sideEffects = getDisplayMedicineText(medicine?.side_effects);
   const warnings = getDisplayMedicineText(medicine?.warnings);
   const precautions = getDisplayMedicineText(medicine?.precautions);
-  const officialLabelUrl = getDisplayMedicineText(medicine?.official_label_url) || getDisplayMedicineText(contractData?.official_label_url);
-  const title = brandName || name || genericName || "Medicine Information";
-  const ingredientSections = getMedicineIngredientSections(medicine);
 
-  if (medicine?.error || contractData?.error) {
+  const officialLabelUrl =
+    getDisplayMedicineText(medicine?.official_label_url) ||
+    getDisplayMedicineText(medicine?.official_label?.url);
+
+  const combinationNotice =
+    getDisplayMedicineText(medicine?.combination_label_notice) ||
+    "This is a combination medicine. Clinical information is shown separately for each active ingredient and should not be interpreted as one official label for the complete combination product.";
+
+  const hasDosage =
+    dosage &&
+    typeof dosage === "object" &&
+    Object.values(dosage).some(
+      (value) =>
+        value !== null &&
+        value !== undefined &&
+        String(value).trim() !== ""
+    );
+
+  const renderValueList = (value: any) => {
+    if (Array.isArray(value)) {
+      const values = value
+        .map((item) =>
+          typeof item === "string"
+            ? item
+            : item?.name || item?.text || item?.description || ""
+        )
+        .filter(Boolean);
+
+      if (values.length === 0) return null;
+
+      return (
+        <ul className="space-y-2">
+          {values.map((item, index) => (
+            <li
+              key={`${item}-${index}`}
+              className="flex items-start gap-2 text-[13.5px] leading-relaxed text-foreground/85"
+            >
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      );
+    }
+
+    const display = getDisplayMedicineText(value);
+    if (!display) return null;
+
+    return (
+      <div className="text-[13.5px] leading-relaxed text-foreground/85 whitespace-pre-line">
+        {display}
+      </div>
+    );
+  };
+
+  const renderIngredientClinicalCard = (
+    label: MedicineIngredientLabel,
+    index: number
+  ) => {
+    const clinicalMedicine =
+      label?.medicine && typeof label.medicine === "object"
+        ? label.medicine
+        : {};
+
+    const ingredientName =
+      getDisplayMedicineText(label?.ingredient) ||
+      getDisplayMedicineText(clinicalMedicine?.generic_name) ||
+      `Ingredient ${index + 1}`;
+
+    const ingredientUses = clinicalMedicine?.uses;
+    const ingredientDosage = clinicalMedicine?.dosage;
+    const ingredientSideEffects = clinicalMedicine?.side_effects;
+    const ingredientWarnings = clinicalMedicine?.warnings;
+    const ingredientPrecautions = clinicalMedicine?.precautions;
+
+    const openFdaUrl =
+      label?.openfda?.display_payload?.source_url ||
+      label?.openfda?.source_url ||
+      null;
+
+    const dailyMedUrl =
+      label?.dailymed?.display_payload?.source_url ||
+      label?.dailymed?.source_url ||
+      null;
+
+    const hasClinicalContent =
+      Boolean(getDisplayMedicineText(ingredientUses)) ||
+      Boolean(getDisplayMedicineText(ingredientSideEffects)) ||
+      Boolean(getDisplayMedicineText(ingredientWarnings)) ||
+      Boolean(getDisplayMedicineText(ingredientPrecautions)) ||
+      Boolean(
+        ingredientDosage &&
+        typeof ingredientDosage === "object" &&
+        Object.values(ingredientDosage).some(Boolean)
+      );
+
+    return (
+      <article
+        key={`${ingredientName}-${index}`}
+        className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm"
+      >
+        <div className="border-b border-border/70 bg-secondary/10 px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                Active ingredient {index + 1}
+              </div>
+              <h5 className="mt-1 text-[17px] font-bold tracking-tight text-primary">
+                {ingredientName}
+              </h5>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {label?.openfda && (
+                <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">
+                  openFDA
+                </span>
+              )}
+              {label?.dailymed && (
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                  DailyMed
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-5 p-5">
+          {!hasClinicalContent && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[13px] leading-relaxed text-amber-900">
+              No sufficiently matched structured clinical label information was returned for this ingredient.
+            </div>
+          )}
+
+          {getDisplayMedicineText(ingredientUses) && (
+            <MedicineInfoSection title="Uses">
+              {renderValueList(ingredientUses)}
+            </MedicineInfoSection>
+          )}
+
+          {ingredientDosage &&
+            typeof ingredientDosage === "object" &&
+            Object.values(ingredientDosage).some(Boolean) && (
+              <MedicineInfoSection title="Dosage & Administration">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {Object.entries(ingredientDosage)
+                    .filter(
+                      ([, value]) =>
+                        value !== null &&
+                        value !== undefined &&
+                        String(value).trim() !== ""
+                    )
+                    .map(([key, value]) => (
+                      <div
+                        key={key}
+                        className="rounded-xl border border-border/60 bg-secondary/10 p-3"
+                      >
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          {key.replaceAll("_", " ")}
+                        </div>
+                        <div className="mt-1 text-[13px] leading-relaxed text-foreground/85">
+                          {getDisplayMedicineText(value)}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </MedicineInfoSection>
+            )}
+
+          {getDisplayMedicineText(ingredientSideEffects) && (
+            <MedicineInfoSection title="Side Effects">
+              {renderValueList(ingredientSideEffects)}
+            </MedicineInfoSection>
+          )}
+
+          {getDisplayMedicineText(ingredientWarnings) && (
+            <MedicineInfoSection title="Warnings">
+              {renderValueList(ingredientWarnings)}
+            </MedicineInfoSection>
+          )}
+
+          {getDisplayMedicineText(ingredientPrecautions) && (
+            <MedicineInfoSection title="Precautions">
+              {renderValueList(ingredientPrecautions)}
+            </MedicineInfoSection>
+          )}
+
+          {(openFdaUrl || dailyMedUrl) && (
+            <div className="flex flex-wrap gap-2 border-t border-border/60 pt-4">
+              {openFdaUrl && (
+                <a
+                  href={openFdaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-[12px] font-bold text-white transition hover:brightness-105"
+                >
+                  Open openFDA Source
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </a>
+              )}
+
+              {dailyMedUrl && (
+                <a
+                  href={dailyMedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-[12px] font-bold text-primary transition hover:bg-primary/10"
+                >
+                  Open DailyMed Source
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      </article>
+    );
+  };
+
+  if (medicine?.error) {
     return (
       <ResultCard
-        icon={<BookOpen className="h-5 w-5" />}
+        icon={<Database className="h-5 w-5" />}
         title="Medicine Retrieval Failed"
-        source="openFDA + DailyMed"
+        source="Medicine Intelligence Engine"
         tone="apricot"
         open={open}
         onToggle={onToggle}
-        contract={contractData || medicine}
+        contract={contractData}
       >
-        <div className="bg-red-50 text-red-800 p-4 border border-red-200 rounded-xl text-[14px] font-medium">
-          {medicine?.error || contractData?.error || "Unable to retrieve medicine information."}
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-[14px] font-medium text-red-800">
+          {medicine.error}
         </div>
       </ResultCard>
     );
@@ -1512,127 +1727,627 @@ function MedicineBlock({
 
   return (
     <ResultCard
-      icon={<BookOpen className="h-5 w-5" />}
-      title={title}
-      source="openFDA + DailyMed"
-      sourceUrl={officialLabelUrl || undefined}
+      icon={<Database className="h-5 w-5" />}
+      title={productName}
+      source={
+        isCombination
+          ? "Indian Medicine Dataset + Ingredient-Level Regulatory Labels"
+          : "openFDA + DailyMed Medicine Intelligence"
+      }
+      sourceUrl={!isCombination ? officialLabelUrl || undefined : undefined}
+      tone="apricot"
       open={open}
       onToggle={onToggle}
-      contract={contractData || medicine}
+      contract={contractData}
     >
-      <div className="space-y-5">
-        <div className="rounded-2xl border border-border bg-secondary/10 p-5 shadow-sm">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {brandName && renderMedicineSummaryItem("Brand Name", brandName)}
-            {genericName && renderMedicineSummaryItem("Generic Name", genericName)}
-            {activeIngredients && renderMedicineSummaryItem("Active Ingredients", activeIngredients)}
-            {manufacturer && renderMedicineSummaryItem("Manufacturer", manufacturer)}
-            {route && renderMedicineSummaryItem("Route", route)}
-          </div>
-        </div>
-
-        {uses && (
-          <MedicineAccordionSection title="Uses">
-            <MedicineLabelSection rawText={uses} kind="uses" />
-          </MedicineAccordionSection>
-        )}
-
-        {(structuredDosageRows.length > 0 || labelInstructions) && (
-          <MedicineAccordionSection title="Dosage & Administration">
-            {structuredDosageRows.length > 0 && (
-              <div className="mb-4 rounded-xl border border-border bg-white/80 p-4 shadow-sm">
-                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Structured Summary</div>
-                <div className="mt-3 space-y-2 text-[13px] text-foreground/85">
-                  {structuredDosageRows.map((row) => (
-                    <div key={row.label} className="flex flex-col gap-1 border-b border-border/60 pb-2 last:border-0 last:pb-0 sm:flex-row sm:justify-between">
-                      <span className="font-semibold text-foreground/90">{row.label}</span>
-                      <span className="text-muted-foreground">{row.value}</span>
-                    </div>
-                  ))}
+      <div className="space-y-6">
+        <section className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
+          <div className="bg-secondary/10 px-5 py-5 md:px-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                  {isCombination ? "Resolved combination medicine" : "Medicine profile"}
                 </div>
+                <h4 className="mt-1 text-[22px] font-bold tracking-tight text-foreground">
+                  {productName}
+                </h4>
+                {genericName && !isCombination && (
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    Generic name: <span className="font-medium text-foreground/85">{genericName}</span>
+                  </p>
+                )}
               </div>
-            )}
-            {labelInstructions && (
-              <div className="rounded-xl border border-border bg-secondary/10 p-4 shadow-sm">
-                <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Official label instructions</div>
-                <MedicineLabelSection rawText={labelInstructions} kind="dosage" />
-              </div>
-            )}
-          </MedicineAccordionSection>
-        )}
 
-        {sideEffects && (
-          <MedicineAccordionSection title="Side Effects">
-            <MedicineLabelSection rawText={sideEffects} kind="sideEffects" />
-          </MedicineAccordionSection>
-        )}
-
-        {warnings && (
-          <MedicineAccordionSection title="Warnings">
-            <MedicineLabelSection rawText={warnings} kind="warnings" />
-          </MedicineAccordionSection>
-        )}
-
-        {precautions && (
-          <MedicineAccordionSection title="Precautions">
-            <MedicineLabelSection rawText={precautions} kind="precautions" />
-          </MedicineAccordionSection>
-        )}
-
-        {(ingredientSections.active.length > 0 || ingredientSections.inactive.length > 0) && (
-          <MedicineAccordionSection title="Ingredients">
-            <div className="space-y-4">
-              {ingredientSections.active.length > 0 && (
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">ACTIVE INGREDIENTS</div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {ingredientSections.active.map((ingredient, ingredientIdx) => (
-                      <span
-                        key={`${ingredient.name || "ingredient"}-${ingredientIdx}`}
-                        className="rounded-full border border-border bg-secondary/20 px-3 py-1.5 text-[12px] font-medium text-foreground/90"
-                      >
-                        <span>{ingredient.name}</span>
-                        {ingredient.strength && <span className="ml-2 text-muted-foreground">— {ingredient.strength}</span>}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {ingredientSections.inactive.length > 0 && (
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">INACTIVE INGREDIENTS</div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {ingredientSections.inactive.map((ingredient, ingredientIdx) => (
-                      <span
-                        key={`${ingredient.name || "ingredient"}-${ingredientIdx}`}
-                        className="rounded-full border border-border bg-secondary/20 px-3 py-1.5 text-[12px] font-medium text-foreground/90"
-                      >
-                        <span>{ingredient.name}</span>
-                        {ingredient.strength && <span className="ml-2 text-muted-foreground">— {ingredient.strength}</span>}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+              {isCombination && (
+                <span className="inline-flex w-fit items-center rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.13em] text-primary">
+                  Combination medicine
+                </span>
               )}
             </div>
-          </MedicineAccordionSection>
-        )}
 
-        {officialLabelUrl && (
-          <a
-            href={officialLabelUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-[12px] font-bold text-white transition hover:brightness-105"
-          >
-            Open Official DailyMed Label
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </a>
+            {(manufacturer || productType || route) && (
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {manufacturer && (
+                  <MedicineMetaTile label="Manufacturer" value={manufacturer} />
+                )}
+                {productType && (
+                  <MedicineMetaTile label="Dosage Form" value={productType} />
+                )}
+                {route && !isCombination && (
+                  <MedicineMetaTile label="Route" value={route} />
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-border/70 px-5 py-5 md:px-6">
+            <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              Active Ingredients
+            </div>
+
+            {activeIngredientItems.length > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {activeIngredientItems.map((ingredient, index) => (
+                  <div
+                    key={`${ingredient.name}-${index}`}
+                    className="rounded-xl border border-primary/15 bg-primary/5 p-4"
+                  >
+                    <div className="text-[14px] font-bold text-foreground">
+                      {ingredient.name}
+                    </div>
+                    {ingredient.strength && (
+                      <div className="mt-1 text-[12px] font-mono text-primary">
+                        {ingredient.strength}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : fallbackActiveIngredients ? (
+              <div className="rounded-xl border border-border/60 bg-secondary/10 p-4 text-[13.5px] leading-relaxed text-foreground/85">
+                {fallbackActiveIngredients}
+              </div>
+            ) : (
+              <div className="text-[13px] text-muted-foreground">
+                Active ingredient information was not available.
+              </div>
+            )}
+          </div>
+        </section>
+
+        {isCombination ? (
+          <>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 rounded-lg bg-white p-2 shadow-sm">
+                  <BookOpen className="h-4 w-4 text-amber-700" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.13em] text-amber-800">
+                    Combination label context
+                  </div>
+                  <p className="mt-1.5 text-[13.5px] leading-relaxed text-amber-950">
+                    {combinationNotice}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <section>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                    Ingredient-level clinical information
+                  </div>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    Regulatory information is presented independently for each resolved active ingredient.
+                  </p>
+                </div>
+                <span className="rounded-full border border-border bg-secondary/20 px-3 py-1 text-[11px] font-mono text-muted-foreground">
+                  {ingredientLabels.length} ingredient{ingredientLabels.length === 1 ? "" : "s"}
+                </span>
+              </div>
+
+              {ingredientLabels.length > 0 ? (
+                <div className="space-y-4">
+                  {ingredientLabels.map(renderIngredientClinicalCard)}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-[13.5px] text-amber-900">
+                  The product composition was resolved, but no ingredient-level official label bundles were returned.
+                </div>
+              )}
+            </section>
+          </>
+        ) : (
+          <div className="grid gap-4">
+            {uses && (
+              <MedicineInfoSection title="Uses">
+                {renderValueList(medicine?.uses)}
+              </MedicineInfoSection>
+            )}
+
+            {hasDosage && (
+              <MedicineInfoSection title="Dosage & Administration">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {Object.entries(dosage)
+                    .filter(
+                      ([, value]) =>
+                        value !== null &&
+                        value !== undefined &&
+                        String(value).trim() !== ""
+                    )
+                    .map(([key, value]) => (
+                      <div
+                        key={key}
+                        className="rounded-xl border border-border/60 bg-secondary/10 p-3"
+                      >
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          {key.replaceAll("_", " ")}
+                        </div>
+                        <div className="mt-1 text-[13px] leading-relaxed text-foreground/85">
+                          {getDisplayMedicineText(value)}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </MedicineInfoSection>
+            )}
+
+            {sideEffects && (
+              <MedicineInfoSection title="Side Effects">
+                {renderValueList(medicine?.side_effects)}
+              </MedicineInfoSection>
+            )}
+
+            {warnings && (
+              <MedicineInfoSection title="Warnings">
+                {renderValueList(medicine?.warnings)}
+              </MedicineInfoSection>
+            )}
+
+            {precautions && (
+              <MedicineInfoSection title="Precautions">
+                {renderValueList(medicine?.precautions)}
+              </MedicineInfoSection>
+            )}
+          </div>
         )}
       </div>
     </ResultCard>
   );
+}
+
+function MedicineMetaTile({
+  label,
+  value
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-white p-3 shadow-sm">
+      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 text-[13px] font-medium leading-relaxed text-foreground/85">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function MedicineInfoSection({
+  title,
+  children
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+      <h5 className="mb-3 text-[12px] font-bold uppercase tracking-[0.14em] text-primary">
+        {title}
+      </h5>
+      {children}
+    </section>
+  );
+}
+
+function NutritionBlock({
+  data,
+  contractData,
+  userQuery = "",
+  open,
+  onToggle,
+}: {
+  data: NutritionData;
+  contractData: unknown;
+  userQuery?: string;
+  open?: boolean;
+  onToggle: () => void;
+}) {
+  const [currentData, setCurrentData] = useState<NutritionData>(data);
+  const [isLoadingAlternative, setIsLoadingAlternative] = useState<boolean>(false);
+  const [loadingFdcId, setLoadingFdcId] = useState<number | string | null>(null);
+
+  const initialGramValue =
+    currentData.requested_portion?.amount || 100;
+  const [selectedGrams, setSelectedGrams] = useState<number>(initialGramValue);
+  const [customGramInput, setCustomGramInput] = useState<string>(String(initialGramValue));
+
+  const foodName =
+    currentData.food_name ||
+    currentData.description ||
+    "Food & Nutrition Information";
+  const foodCategory =
+    currentData.food_category ||
+    "";
+  const dataType =
+    currentData.data_type ||
+    "";
+  const brandOwner =
+    currentData.brand_owner ||
+    null;
+  const fdcId = currentData.fdc_id || null;
+  const sourceUrl =
+    (currentData.source_url as string) ||
+    undefined;
+  const nutrientBasis =
+    ((currentData.nutrient_basis as Record<string, unknown>)?.display as string) ||
+    (currentData.nutrient_basis as string) ||
+    "per 100 g";
+
+  const nutrientsObject =
+    (currentData.nutrients as Record<string, unknown>) || {};
+
+  const scaledNutrientEntries = useMemo(() => {
+    const scaleFactor = selectedGrams / 100.0;
+    return Object.entries(nutrientsObject).map(([key, item]) => {
+      if (!item || typeof item !== "object") {
+        return { key, value: null, display: null };
+      }
+      const rawVal = (item as any).value;
+      const unit = (item as any).unit || "";
+      if (rawVal === undefined || rawVal === null) {
+        return { key, value: null, display: null };
+      }
+      const scaled = roundNutrientValue(Number(rawVal) * scaleFactor);
+      return {
+        key,
+        value: scaled,
+        display: `${scaled} ${unit}`.trim(),
+      };
+    }).filter((item) => item.display !== null);
+  }, [nutrientsObject, selectedGrams]);
+
+  const primaryNutrientKeys = [
+    "energy_kcal",
+    "protein",
+    "carbohydrates",
+    "total_fat",
+    "fiber",
+    "total_sugars",
+  ];
+
+  const primaryNutrientMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const item of scaledNutrientEntries) {
+      if (primaryNutrientKeys.includes(item.key) && item.display) {
+        map[item.key] = item.display;
+      }
+    }
+    return map;
+  }, [scaledNutrientEntries]);
+
+  const rawPortions = Array.isArray(currentData.usda_defined_portions)
+    ? (currentData.usda_defined_portions as NutritionPortion[])
+    : [];
+
+  const portionCards = rawPortions
+    .map((portion) => ({
+      label: renderUsdaPortionLabel(portion),
+      gramWeight: portion.gram_weight,
+      raw: portion,
+    }))
+    .filter((entry) => Boolean(entry.label) && entry.gramWeight != null);
+
+  const alternativeMatches = Array.isArray(currentData.alternative_matches)
+    ? (currentData.alternative_matches as Array<Record<string, unknown>>)
+    : [];
+
+  const currentMatchId = fdcId ? String(fdcId) : null;
+
+  const handleGramChange = (newGrams: number) => {
+    if (isNaN(newGrams) || newGrams <= 0) return;
+    const rounded = Math.round(newGrams * 10) / 10;
+    setSelectedGrams(rounded);
+    setCustomGramInput(String(rounded));
+  };
+
+  const handleSelectAlternativeMatch = async (matchFdcId: number | string) => {
+    if (String(matchFdcId) === currentMatchId) return;
+    
+    setIsLoadingAlternative(true);
+    setLoadingFdcId(matchFdcId);
+    toast.info("Retrieving selected USDA FoodData Central record...");
+
+    try {
+      const activeQuery = currentData.food_name || userQuery || "food";
+      const res = await fetch(`${API_BASE}/retriever/nutrition?q=${encodeURIComponent(activeQuery)}&fdc_id=${matchFdcId}&grams=${selectedGrams}`);
+      const responseData = await res.json();
+
+      if (!res.ok || responseData.error || responseData.success === false) {
+        throw new Error(responseData.error || "Failed to retrieve alternative food record.");
+      }
+
+      const newNutritionPayload = normalizeNutritionPayload(responseData);
+      if (newNutritionPayload) {
+        setCurrentData(newNutritionPayload);
+        toast.success(`Switched to: ${newNutritionPayload.food_name || "Selected Food"}`);
+      }
+    } catch (err: any) {
+      toast.error(`Alternative match lookup failed: ${err.message}`);
+    } finally {
+      setIsLoadingAlternative(false);
+      setLoadingFdcId(null);
+    }
+  };
+
+  if (currentData.error) {
+    return (
+      <ResultCard icon={<Salad className="h-5 w-5" />} title="Food & Nutrition Retrieval Failed" source="USDA FoodData Central" tone="apricot" open={open} onToggle={onToggle} contract={contractData || data}>
+        <div className="bg-red-50 text-red-800 p-4 border border-red-200 rounded-xl text-[14px] font-medium">
+          {currentData.error}
+        </div>
+      </ResultCard>
+    );
+  }
+
+  return (
+    <ResultCard icon={<Salad className="h-5 w-5" />} title="Food & Nutrition Information" source="USDA FoodData Central" sourceUrl={sourceUrl} open={open} onToggle={onToggle} contract={contractData}>
+      <div className="space-y-6">
+        <div className="rounded-2xl border border-border bg-secondary/10 p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-xl font-semibold tracking-tight text-foreground">{foodName}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{brandOwner ? `${foodCategory} · ${brandOwner}` : foodCategory}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {dataType && <span className="rounded-full bg-white/90 border border-border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">{dataType}</span>}
+              {foodCategory && <span className="rounded-full bg-white/90 border border-border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">{foodCategory}</span>}
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
+            {brandOwner && <span>{brandOwner}</span>}
+            {fdcId && <span>FDC ID {fdcId}</span>}
+            <span>Basis: {nutrientBasis}</span>
+          </div>
+        </div>
+
+        {/* Interactive Portion & Gram Scaling Bar */}
+        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2.5">
+              <Scale className="h-5 w-5 text-primary shrink-0" />
+              <div>
+                <h4 className="text-sm font-bold text-foreground uppercase tracking-wider">Interactive Gram Scaling</h4>
+                <p className="text-xs text-muted-foreground">Recalculate nutrients for arbitrary gram quantities</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => handleGramChange(100)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition border ${selectedGrams === 100 ? "bg-primary text-white border-primary" : "bg-white border-border text-foreground hover:bg-secondary"}`}
+              >
+                100 g Basis
+              </button>
+
+              {portionCards.slice(0, 3).map((portion, idx) => (
+                <button
+                  key={`${portion.label}-${idx}`}
+                  type="button"
+                  onClick={() => handleGramChange(Number(portion.gramWeight))}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition border ${selectedGrams === portion.gramWeight ? "bg-primary text-white border-primary" : "bg-white border-border text-foreground hover:bg-secondary"}`}
+                >
+                  {portion.label}
+                </button>
+              ))}
+
+              <div className="flex items-center gap-1.5 bg-white border border-border rounded-xl px-2.5 py-1 focus-within:ring-2 focus-within:ring-primary/40">
+                <input
+                  type="number"
+                  min="1"
+                  max="5000"
+                  value={customGramInput}
+                  onChange={(e) => {
+                    setCustomGramInput(e.target.value);
+                    const val = parseFloat(e.target.value);
+                    if (!isNaN(val) && val > 0) setSelectedGrams(val);
+                  }}
+                  className="w-16 text-xs font-bold text-foreground outline-none bg-transparent"
+                  placeholder="Grams"
+                />
+                <span className="text-xs font-bold text-muted-foreground">g</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-primary/20 flex items-center justify-between text-xs text-primary font-medium">
+            <span>Currently displaying nutrition values scaled for <strong>{selectedGrams} g</strong>:</span>
+            {selectedGrams !== 100 && (
+              <span className="font-mono text-[11px] bg-primary/10 px-2 py-0.5 rounded-md">
+                Scaled by {(selectedGrams / 100).toFixed(2)}x
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Scaled Primary Nutrients Overview */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {primaryNutrientKeys.map((key) => {
+            const valDisplay = primaryNutrientMap[key];
+            return (
+              <div key={key} className="rounded-2xl border border-border bg-white p-4 shadow-sm">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{formatNutritionLabel(key)}</div>
+                <div className="mt-2 text-[18px] font-semibold text-foreground">{valDisplay || "N/A"}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Detailed Nutrient Profile */}
+        <div className="rounded-2xl border border-border bg-white/80 p-5 shadow-sm">
+          <div className="mb-4">
+            <h4 className="text-lg font-semibold text-foreground">Detailed Nutrient Profile</h4>
+            <p className="text-sm text-muted-foreground">Complete nutrient profile mathematically scaled for {selectedGrams} g.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {scaledNutrientEntries.map((nutrient) => (
+              <div key={nutrient.key} className="rounded-2xl border border-border bg-secondary/10 p-4">
+                <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{formatNutritionLabel(nutrient.key)}</div>
+                <div className="mt-2 text-[15px] font-semibold text-foreground">{nutrient.display}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* USDA Defined Portion Cards */}
+        {portionCards.length > 0 && (
+          <div className="rounded-2xl border border-border bg-white/80 p-5 shadow-sm">
+            <div className="mb-4">
+              <h4 className="text-lg font-semibold text-foreground">USDA Serving Portions</h4>
+              <p className="text-sm text-muted-foreground">Click any portion to quickly scale nutrient values.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {portionCards.map((entry, idx) => (
+                <button
+                  key={`${entry.label}-${idx}`}
+                  type="button"
+                  onClick={() => handleGramChange(Number(entry.gramWeight))}
+                  className={`text-left rounded-2xl border p-4 transition-all ${selectedGrams === entry.gramWeight ? "border-primary bg-primary/10 shadow-sm" : "border-border bg-secondary/10 hover:bg-secondary/20"}`}
+                >
+                  <div className="text-[14px] font-semibold text-foreground">{entry.label}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Calculates as {entry.gramWeight} grams</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Interactive Alternative USDA Matches */}
+        {alternativeMatches.length > 0 && (
+          <div className="rounded-2xl border border-border bg-secondary/10 p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h4 className="text-lg font-semibold text-foreground">Interactive Alternative USDA Matches</h4>
+                <p className="text-sm text-muted-foreground">Select an alternative match below to dynamically fetch its full nutritional profile.</p>
+              </div>
+              {isLoadingAlternative && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
+            </div>
+            <div className="grid gap-3">
+              {alternativeMatches.map((match: any, idx: number) => {
+                const matchFdcId = match.fdc_id;
+                const isSelected = currentMatchId && String(matchFdcId) === currentMatchId;
+                const isThisLoading = isLoadingAlternative && String(loadingFdcId) === String(matchFdcId);
+
+                return (
+                  <div
+                    key={`${matchFdcId || idx}`}
+                    onClick={() => handleSelectAlternativeMatch(matchFdcId)}
+                    className={`rounded-2xl border p-4 transition-all cursor-pointer ${isSelected ? "border-primary bg-primary/10 shadow-sm" : "border-border bg-white hover:border-primary/50 hover:shadow-md"}`}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="text-[14px] font-semibold text-foreground flex items-center gap-2">
+                          {match.description || match.food_name || "Alternative match"}
+                          {isThisLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
+                        </div>
+                        <div className="mt-1 text-[12px] text-muted-foreground">{match.data_type || match.type || "USDA match"}</div>
+                      </div>
+                      {isSelected ? (
+                        <span className="rounded-full bg-primary text-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] shrink-0">
+                          Current Match
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-primary/30 text-primary hover:bg-primary/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] shrink-0 transition">
+                          Select Food
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 text-[12px] text-muted-foreground">
+                      {match.food_category && <div>Category: {match.food_category}</div>}
+                      {match.brand_owner && <div>Brand: {match.brand_owner}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </ResultCard>
+  );
+}
+
+function formatNutritionLabel(key: string) {
+  const labelMap: Record<string, string> = {
+    energy_kcal: "Energy",
+    total_fat: "Total Fat",
+    total_sugars: "Total Sugars",
+    carbohydrates: "Carbohydrates",
+    protein: "Protein",
+    fiber: "Fiber",
+    vitamin_a: "Vitamin A",
+    vitamin_d: "Vitamin D",
+    vitamin_c: "Vitamin C",
+    vitamin_b12: "Vitamin B12",
+    monounsaturated_fat: "Monounsaturated Fat",
+    polyunsaturated_fat: "Polyunsaturated Fat",
+    saturated_fat: "Saturated Fat",
+    cholesterol: "Cholesterol",
+    sodium: "Sodium",
+    potassium: "Potassium",
+    calcium: "Calcium",
+    iron: "Iron",
+    magnesium: "Magnesium",
+    phosphorus: "Phosphorus",
+    zinc: "Zinc",
+    folate: "Folate"
+  };
+  return labelMap[key] || key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function roundNutrientValue(num: number): number {
+  if (num === 0) return 0;
+  if (num < 0.1) return Math.round(num * 1000) / 1000;
+  if (num < 10) return Math.round(num * 100) / 100;
+  return Math.round(num * 10) / 10;
+}
+
+function renderUsdaPortionLabel(portion: any) {
+  if (!portion || typeof portion !== "object") return null;
+  const description = String(portion.description || "").trim();
+  const gramWeight = portion.gram_weight != null ? `${portion.gram_weight} g` : null;
+  const unit = String(portion.unit || "").trim();
+  const modifier = String(portion.modifier || "").trim();
+  const hideUnit = !unit || /^undetermined$/i.test(unit);
+  const showModifier = modifier && !/^[0-9]+$/.test(modifier);
+
+  const parts = [];
+  if (description) parts.push(description);
+  if (gramWeight) parts.push(gramWeight);
+  else if (!description && portion.amount != null && !hideUnit) {
+    parts.push(`${portion.amount} ${unit}`);
+  }
+
+  if (showModifier && !description) {
+    parts.push(modifier);
+  }
+
+  return parts.join(" · ") || null;
 }
 
 function MedicineAccordionSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -2080,7 +2795,6 @@ function normalizeMedicineIngredient(value: unknown): MedicineIngredient {
     strength: null,
   };
 }
-
 
 function GoogleSearchBlock({ data, open, onToggle }: { data: any; open?: boolean; onToggle: () => void }) {
   const payload = data.display_payload || {};

@@ -110,6 +110,89 @@ def _get_candidate_name(
 # MATCHING
 # ============================================================
 
+
+def _build_expected_identities(
+    query: str,
+    brand_names: Optional[List[str]] = None,
+    generic_name: Optional[str] = None,
+    active_ingredients: Optional[List[Any]] = None,
+) -> List[str]:
+    """Build normalized trusted identities used to validate a label."""
+    values: List[str] = [
+        query,
+        *(brand_names or []),
+    ]
+
+    if generic_name:
+        values.append(generic_name)
+
+    values.extend(
+        _extract_ingredient_names(
+            active_ingredients
+        )
+    )
+
+    output = []
+    seen = set()
+
+    for value in values:
+        normalized = _normalize_name(value)
+
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            output.append(normalized)
+
+    return output
+
+
+def _has_identity_match(
+    candidate: str,
+    query: str,
+    brand_names: Optional[List[str]] = None,
+    generic_name: Optional[str] = None,
+    active_ingredients: Optional[List[Any]] = None,
+) -> bool:
+    """
+    Require a DailyMed candidate title/name to match at least one
+    trusted identity. Incidental word overlap is not enough.
+    """
+    candidate_normalized = _normalize_name(candidate)
+
+    if not candidate_normalized:
+        return False
+
+    candidate_tokens = set(
+        candidate_normalized.split()
+    )
+
+    for expected in _build_expected_identities(
+        query=query,
+        brand_names=brand_names,
+        generic_name=generic_name,
+        active_ingredients=active_ingredients,
+    ):
+        if candidate_normalized == expected:
+            return True
+
+        if (
+            expected in candidate_normalized
+            or candidate_normalized in expected
+        ):
+            return True
+
+        expected_tokens = set(expected.split())
+
+        if (
+            expected_tokens
+            and expected_tokens.issubset(
+                candidate_tokens
+            )
+        ):
+            return True
+
+    return False
+
+
 def _calculate_match_score(
     candidate: str,
     query: str,
@@ -388,6 +471,15 @@ def _select_best_drug_name(
         if not name:
             continue
 
+        if not _has_identity_match(
+            candidate=name,
+            query=query,
+            brand_names=brand_names,
+            generic_name=generic_name,
+            active_ingredients=active_ingredients,
+        ):
+            continue
+
         score = _calculate_match_score(
             candidate=name,
             query=query,
@@ -439,6 +531,15 @@ def _select_best_spl(
         )
 
         if not title:
+            continue
+
+        if not _has_identity_match(
+            candidate=title,
+            query=query,
+            brand_names=brand_names,
+            generic_name=generic_name,
+            active_ingredients=active_ingredients,
+        ):
             continue
 
         score = _calculate_match_score(

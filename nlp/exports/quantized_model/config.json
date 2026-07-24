@@ -11,22 +11,30 @@
   "hidden_dropout_prob": 0.1,
   "hidden_size": 768,
   "id2label": {
-    "0": "discussion_social",
-    "1": "general_wiki",
-    "2": "movies",
-    "3": "technical_code",
-    "4": "technical_oracle",
-    "5": "weather"
+    "0": "academic_research",
+    "1": "discussion_social",
+    "2": "food_nutrition",
+    "3": "general_wiki",
+    "4": "medical_research",
+    "5": "medicine",
+    "6": "movies",
+    "7": "technical_code",
+    "8": "technical_oracle",
+    "9": "weather"
   },
   "initializer_range": 0.02,
   "intermediate_size": 3072,
   "label2id": {
-    "discussion_social": 0,
-    "general_wiki": 1,
-    "movies": 2,
-    "technical_code": 3,
-    "technical_oracle": 4,
-    "weather": 5
+    "academic_research": 0,
+    "discussion_social": 1,
+    "food_nutrition": 2,
+    "general_wiki": 3,
+    "medical_research": 4,
+    "medicine": 5,
+    "movies": 6,
+    "technical_code": 7,
+    "technical_oracle": 8,
+    "weather": 9
   },
   "layer_norm_eps": 1e-05,
   "max_position_embeddings": 514,
@@ -38,6 +46,6 @@
   "problem_type": "single_label_classification",
   "transformers_version": "4.57.6",
   "type_vocab_size": 1,
-  "use_cache": false,
+  "use_cache": true,
   "vocab_size": 50265
 }
