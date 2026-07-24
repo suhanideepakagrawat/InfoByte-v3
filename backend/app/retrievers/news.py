@@ -31,52 +31,183 @@ NEWSMESH_API_KEY = os.environ.get("NEWSMESH_API_KEY")
 # Query preprocessing
 # ----------------------------------------------------------
 
+import re
+from difflib import SequenceMatcher
+
+
+# ----------------------------------------------------------
+# Query preprocessing
+# ----------------------------------------------------------
+
+# Only remove conversational filler.
+# Never remove meaningful entity words like
+# "article", "section", "constitution", etc.
+FILLER_WORDS = {
+    "show",
+    "find",
+    "tell",
+    "give",
+    "display",
+    "fetch",
+    "latest",
+    "recent",
+    "current",
+    "please",
+    "me",
+    "about",
+    "regarding",
+    "happening",
+}
+
+
+# Known entity expansions
+ENTITY_EXPANSIONS = {
+    "article 370": "Article 370",
+    "section 144": "Section 144",
+    "python gil": "Python GIL",
+    "ora-00001": "ORA-00001 Oracle",
+    "openai": "OpenAI",
+    "ipl": "Indian Premier League",
+    "article 35a": "Article 35A",
+}
+
+
+def normalize_query(text: str) -> str:
+    """
+    Normalize punctuation and whitespace while preserving
+    semantic keywords.
+    """
+
+    text = text.lower()
+
+    text = re.sub(r"[-_/]", " ", text)
+    text = re.sub(r"[^\w\s]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
+
 def extract_search_keywords(query: str) -> str:
     """
-    Isolates the core search topic by removing common
-    conversational and news-related stopwords.
+    Removes ONLY conversational filler.
+    Never removes entity words.
     """
 
-    stopwords = {
-        "news",
-        "article",
-        "articles",
-        "about",
-        "regarding",
-        "in",
-        "on",
-        "for",
-        "latest",
-        "recent",
-        "show",
-        "me",
-        "find",
-        "tell",
-        "what",
-        "is",
-        "happening",
-        "current",
-    }
+    normalized = normalize_query(query)
 
-    words = (
-        query.lower()
-        .replace("?", "")
-        .replace(".", "")
-        .split()
-    )
+    words = normalized.split()
 
-    clean_keywords = [
+    cleaned = [
         word
         for word in words
-        if word not in stopwords
+        if word not in FILLER_WORDS
     ]
 
-    return (
-        " ".join(clean_keywords).strip()
-        if clean_keywords
-        else query.strip()
-    )
+    if not cleaned:
+        return query.strip()
 
+    return " ".join(cleaned)
+
+
+def expand_news_query(query: str) -> str:
+    """
+    Expands well-known entities before sending them
+    to the news provider.
+    """
+
+    normalized = normalize_query(query)
+
+    for entity, expanded in ENTITY_EXPANSIONS.items():
+        if entity in normalized:
+            return expanded
+
+    return query
+
+
+def keyword_overlap(query: str, text: str) -> int:
+    """
+    Counts overlapping keywords.
+    """
+
+    q = set(normalize_query(query).split())
+    t = set(normalize_query(text).split())
+
+    return len(q & t)
+
+
+def score_article(query: str, article: dict) -> int:
+    """
+    Assigns a relevance score.
+    """
+
+    title = article.get("title", "")
+    description = article.get("description", "")
+
+    title_lower = title.lower()
+    desc_lower = description.lower()
+
+    score = 0
+
+    normalized_query = normalize_query(query)
+
+    if normalized_query in normalize_query(title):
+        score += 100
+
+    if normalized_query in normalize_query(description):
+        score += 60
+
+    overlap_title = keyword_overlap(query, title)
+
+    overlap_desc = keyword_overlap(query, description)
+
+    score += overlap_title * 25
+    score += overlap_desc * 15
+
+    return score
+
+
+def deduplicate_articles(articles):
+    """
+    Removes duplicate titles and URLs.
+    """
+
+    unique = []
+
+    seen_urls = set()
+    seen_titles = []
+
+    for article in articles:
+
+        url = article.get("url", "")
+
+        title = article.get("title", "")
+
+        if url in seen_urls:
+            continue
+
+        duplicate = False
+
+        for existing in seen_titles:
+
+            similarity = SequenceMatcher(
+                None,
+                existing.lower(),
+                title.lower()
+            ).ratio()
+
+            if similarity > 0.90:
+                duplicate = True
+                break
+
+        if duplicate:
+            continue
+
+        seen_urls.add(url)
+        seen_titles.append(title)
+
+        unique.append(article)
+
+    return unique
 
 # ----------------------------------------------------------
 # News retrieval
@@ -105,116 +236,175 @@ def handle_news_query(search_query: str) -> dict:
     }
 
     refined_keywords = extract_search_keywords(search_query)
+    expanded_query = expand_news_query(refined_keywords)
 
     combined_text = []
     providers_used = []
     first_url = None
-
 
     # ======================================================
     # 1. GNEWS - TOP 3 ARTICLES
     # ======================================================
 
     if GNEWS_API_KEY:
-        try:
-            params = {
-                "q": refined_keywords,
-                "token": GNEWS_API_KEY,
-                "lang": "en",
-                "max": 3,
-            }
+        
+        # Build fallback list and remove duplicates while preserving order
+        candidate_queries_raw = [
+            expanded_query,
+            refined_keywords,
+            search_query
+        ]
+        
+        candidate_queries = []
+        seen_queries = set()
+        for q in candidate_queries_raw:
+            if q and q not in seen_queries:
+                candidate_queries.append(q)
+                seen_queries.add(q)
+                
+        for current_query in candidate_queries:
+            try:
+                print(f"[DEBUG] Trying GNews query: {current_query}", flush=True)
 
-            resp = requests.get(
-                "https://gnews.io/api/v4/search",
-                params=params,
-                headers=headers,
-                timeout=15,
-            )
+                params = {
+                    "q": current_query,
+                    "token": GNEWS_API_KEY,
+                    "lang": "en",
+                    "max": 10,
+                }
 
-            print(
-                f"[DEBUG] GNews request for "
-                f"'{refined_keywords}' returned "
-                f"status {resp.status_code}",
-                flush=True,
-            )
-
-            if resp.status_code == 200:
-
-                data = resp.json()
-                articles = data.get("articles", [])
+                resp = requests.get(
+                    "https://gnews.io/api/v4/search",
+                    params=params,
+                    headers=headers,
+                    timeout=60,
+                )
 
                 print(
-                    f"[DEBUG] GNews returned "
-                    f"{len(articles)} article(s)",
+                    f"[DEBUG] GNews request for "
+                    f"'{current_query}' returned "
+                    f"status {resp.status_code}",
                     flush=True,
                 )
 
-                if articles:
+                if resp.status_code == 200:
 
-                    gnews_results = []
+                    data = resp.json()
 
-                    # Process maximum 3 articles
-                    for index, article in enumerate(
-                        articles[:3],
-                        start=1
-                    ):
+                    articles = data.get("articles", [])
 
-                        article_url = article.get("url")
-
-                        article_title = article.get(
-                            "title",
-                            "No Title"
-                        )
-
-                        # Title is displayed separately,
-                        # so only extract description/content
-                        main_text = clean_json_response(
-                            article,
-                            [
-                                "description",
-                                "content",
-                            ],
-                        )
-
-                        gnews_results.append(
-                            f"### {index}. "
-                            f"{article_title}\n\n"
-                            f"{main_text}\n\n"
-                            f"[Read Full Article]"
-                            f"({article_url})"
-                        )
-
-                        # Keep the first article URL
-                        # as the primary source URL
-                        if not first_url and article_url:
-                            first_url = article_url
-
-                    # Add all 3 articles as one result section
-                    combined_text.append(
-                        "## 📰 Top 3 GNews Results\n\n"
-                        + "\n\n---\n\n".join(
-                            gnews_results
-                        )
+                    print(
+                        f"[DEBUG] Retrieved {len(articles)} articles",
+                        flush=True,
                     )
 
-                    providers_used.append("GNews")
+                    if articles:
+                        
+                        print(f"[DEBUG] Using query: {current_query}", flush=True)
 
-            else:
+                        # ----------------------------------------
+                        # Remove duplicates
+                        # ----------------------------------------
+
+                        articles = deduplicate_articles(
+                            articles
+                        )
+
+                        # ----------------------------------------
+                        # Rank locally
+                        # ----------------------------------------
+
+                        ranked = sorted(
+                            articles,
+                            key=lambda article: score_article(
+                                refined_keywords,
+                                article,
+                            ),
+                            reverse=True,
+                        )
+
+                        ranked = ranked[:3]
+
+                        gnews_results = []
+
+                        for index, article in enumerate(
+                            ranked,
+                            start=1,
+                        ):
+
+                            article_url = article.get("url")
+
+                            article_title = article.get(
+                                "title",
+                                "No Title",
+                            )
+
+                            main_text = clean_json_response(
+                                article,
+                                [
+                                    "description",
+                                    "content",
+                                ],
+                            )
+
+                            relevance = score_article(
+                                refined_keywords,
+                                article,
+                            )
+
+                            print(
+                                f"[DEBUG] "
+                                f"Rank {index} | "
+                                f"Score={relevance} | "
+                                f"{article_title}",
+                                flush=True,
+                            )
+
+                            gnews_results.append(
+                                f"### {index}. "
+                                f"{article_title}\n\n"
+                                f"{main_text}\n\n"
+                                f"[Read Full Article]"
+                                f"({article_url})"
+                            )
+
+                            if (
+                                not first_url
+                                and article_url
+                            ):
+                                first_url = article_url
+
+                        combined_text.append(
+                            "## 📰 Top 3 GNews Results\n\n"
+                            + "\n\n---\n\n".join(
+                                gnews_results
+                            )
+                        )
+
+                        providers_used.append(
+                            "GNews"
+                        )
+                        
+                        # Stop trying fallback queries once articles are found
+                        break
+
+                else:
+
+                    print(
+                        f"[DEBUG] GNews API error "
+                        f"{resp.status_code}: "
+                        f"{resp.text[:500]}",
+                        flush=True,
+                    )
+
+            except Exception as e:
+
                 print(
-                    f"[DEBUG] GNews API error "
-                    f"{resp.status_code}: "
-                    f"{resp.text[:500]}",
+                    f"[DEBUG] GNews failed for "
+                    f"'{current_query}': "
+                    f"{type(e).__name__}: {e}",
                     flush=True,
                 )
-
-        except Exception as e:
-            print(
-                f"[DEBUG] GNews failed for "
-                f"'{refined_keywords}': "
-                f"{type(e).__name__}: {e}",
-                flush=True,
-            )
-
 
     # ======================================================
     # 2. NEWSMESH - TOP STORY
@@ -223,12 +413,11 @@ def handle_news_query(search_query: str) -> dict:
     if NEWSMESH_API_KEY:
         try:
             params = {
-                "query": refined_keywords,
+                "q": expanded_query,
                 "apiKey": NEWSMESH_API_KEY,
                 "language": "en",
                 "limit": 1,
             }
-
             resp = requests.get(
                 "https://api.newsmesh.co/v1/search",
                 params=params,
@@ -238,7 +427,7 @@ def handle_news_query(search_query: str) -> dict:
 
             print(
                 f"[DEBUG] NewsMesh request for "
-                f"'{refined_keywords}' returned "
+                f"'{expanded_query}' returned "
                 f"status {resp.status_code}",
                 flush=True,
             )
