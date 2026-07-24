@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import {
   Search, Cloud, Newspaper, BookOpen, MessageSquare, Code2, ArrowUpRight,
-  ChevronDown, Sparkles, Timer, Radar, Wind, Droplets, Thermometer, ArrowUp, Check, Globe, Database, Salad, Scale, Loader2
+  ChevronDown, Sparkles, Timer, Radar, Wind, Droplets, Thermometer, ArrowUp, Check, Globe, Database, Salad, Scale, Loader2,
+  Activity, AlertTriangle, Info
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -17,7 +18,7 @@ export const Route = createFileRoute("/")({
   component: SearchView,
 });
 
-const API_BASE = "https://infobyte-v3.onrender.com/api";
+const API_BASE = "http://127.0.0.1:8000/api";
 
 const ALL_TAXONOMY_INTENTS = [
   "technical_code", "technical_oracle", "discussion_social",
@@ -119,17 +120,18 @@ interface NutritionData {
 function normalizeNutritionPayload(data: unknown): NutritionData | null {
   if (!data || typeof data !== "object") return null;
 
+  const dataRecord = data as Record<string, any>;
   const candidatePaths = [
     data,
-    (data as Record<string, unknown>).payload,
-    (data as Record<string, unknown>).payload?.nutrition,
-    (data as Record<string, unknown>).payload?.nutrition?.payload,
-    (data as Record<string, unknown>).payload?.nutrition?.nutrition,
-    (data as Record<string, unknown>).payload?.nutrition?.payload?.nutrition,
-    (data as Record<string, unknown>).display_payload,
-    (data as Record<string, unknown>).display_payload?.nutrition,
-    (data as Record<string, unknown>).display_payload?.nutrition?.payload,
-    (data as Record<string, unknown>).display_payload?.nutrition?.nutrition,
+    dataRecord.payload,
+    dataRecord.payload?.nutrition,
+    dataRecord.payload?.nutrition?.payload,
+    dataRecord.payload?.nutrition?.nutrition,
+    dataRecord.payload?.nutrition?.payload?.nutrition,
+    dataRecord.display_payload,
+    dataRecord.display_payload?.nutrition,
+    dataRecord.display_payload?.nutrition?.payload,
+    dataRecord.display_payload?.nutrition?.nutrition,
   ];
 
   for (const candidate of candidatePaths) {
@@ -176,12 +178,15 @@ function SearchView() {
   const toggle = (k: string) => setOpenContracts((s) => ({ ...s, [k]: !s[k] }));
 
   const medicalResearchData = results?.payload?.medical_research ?? results?.medical_research;
+  
+  // The backend now returns structured data at the root if it's the top intent, 
+  // or inside formatted_data if it's a secondary intent.
+  const isStructuredRoot = !!results?.cards;
   const medicineSourceData = results?.payload?.medicine ?? results?.medicine;
-  const medicineData: MedicineData | null =
-    (medicineSourceData?.payload?.medicine as MedicineData | null) ??
-    (medicineSourceData?.medicine as MedicineData | null) ??
-    (medicineSourceData?.display_payload?.medicine as MedicineData | null) ??
-    (medicineSourceData as MedicineData | null);
+  
+  const medicineData = isStructuredRoot 
+    ? results 
+    : (medicineSourceData?.payload?.formatted_data ?? medicineSourceData);
 
   const nutritionSourceData =
     results?.payload?.nutrition ??
@@ -528,7 +533,7 @@ function SearchView() {
           {medicineSourceData && (
             <MedicineBlock
               data={medicineData}
-              contractData={medicineSourceData}
+              contractData={results?.raw_contract ?? medicineSourceData}
               open={openContracts.medicine}
               onToggle={() => toggle("medicine")}
             />
@@ -1411,303 +1416,85 @@ function MedicineBlock({
   open,
   onToggle
 }: {
-  data?: MedicineData | null;
+  data?: any;
   contractData: any;
   open?: boolean;
   onToggle: () => void;
 }) {
-  const medicine = data && typeof data === "object" ? data : {};
+  const isStructured = !!data?.cards;
+  const medInfo = data?.medicine || {};
+  const cards = data?.cards || [];
+  const sources = data?.sources || [];
+  
+  // Fallback for combination medicines preserved in the contract data
+  const payloadRoot = contractData?.payload || contractData || {};
+  const ingredientLabels = payloadRoot.ingredient_labels || [];
+  const isCombination = ingredientLabels.length > 1;
 
-  const payloadRoot =
-    contractData?.payload && typeof contractData.payload === "object"
-      ? contractData.payload
-      : contractData || {};
+  const productName = medInfo.name || medInfo.generic_name || "Medicine Information";
+  const manufacturer = medInfo.manufacturer;
+  const genericName = medInfo.generic_name;
+  const strength = medInfo.strength;
+  const route = Array.isArray(medInfo.route) ? medInfo.route.join(", ") : medInfo.route;
 
-  const resolution =
-    payloadRoot?.indian_medicine_resolution ||
-    contractData?.indian_medicine_resolution ||
-    null;
+  const IconComponent = ({ name }: { name: string }) => {
+    const icons: Record<string, any> = { 
+      pill: Database, 
+      schedule: Timer, 
+      activity: Activity, 
+      "alert-triangle": AlertTriangle, 
+      "x-circle": AlertTriangle, 
+      info: Info 
+    };
+    const Icon = icons[name] || Check;
+    return <Icon className="h-5 w-5" />;
+  };
 
-  const ingredientLabels: MedicineIngredientLabel[] = Array.isArray(
-    payloadRoot?.ingredient_labels
-  )
-    ? payloadRoot.ingredient_labels
-    : Array.isArray(medicine?.ingredient_labels)
-      ? medicine.ingredient_labels
-      : Array.isArray(contractData?.source_results?.ingredient_labels)
-        ? contractData.source_results.ingredient_labels
-        : [];
-
-  const isCombination =
-    Boolean(resolution?.search_terms?.is_combination) ||
-    ingredientLabels.length > 1 ||
-    (Array.isArray(resolution?.ingredients) && resolution.ingredients.length > 1);
-
-  const productName =
-    getDisplayMedicineText(medicine?.medicine_name) ||
-    getDisplayMedicineText(medicine?.brand_name) ||
-    getDisplayMedicineText(medicine?.name) ||
-    getDisplayMedicineText(resolution?.product?.medicine_name) ||
-    "Medicine Information";
-
-  const genericName = getDisplayMedicineText(medicine?.generic_name);
-  const manufacturer =
-    getDisplayMedicineText(medicine?.manufacturer) ||
-    getDisplayMedicineText(resolution?.product?.manufacturer);
-
-  const productType =
-    getDisplayMedicineText(medicine?.product_type) ||
-    getDisplayMedicineText(resolution?.product?.type);
-
-  const route = getDisplayMedicineText(getMedicineRouteValue(medicine?.route));
-
-  const activeIngredientItems: MedicineIngredient[] = Array.isArray(
-    medicine?.active_ingredients
-  )
-    ? medicine.active_ingredients
-        .map((item: any) => {
-          if (typeof item === "string") {
-            return { name: item, strength: null };
-          }
-
-          return {
-            name: item?.name || item?.ingredient || item?.active_ingredient || null,
-            strength: item?.strength || null,
-          };
-        })
-        .filter((item: MedicineIngredient) => item.name)
-    : [];
-
-  const fallbackActiveIngredients = getDisplayMedicineText(
-    getMedicineActiveIngredients(medicine?.active_ingredients)
-  );
-
-  const uses = getDisplayMedicineText(medicine?.uses);
-  const dosage = medicine?.dosage || {};
-  const sideEffects = getDisplayMedicineText(medicine?.side_effects);
-  const warnings = getDisplayMedicineText(medicine?.warnings);
-  const precautions = getDisplayMedicineText(medicine?.precautions);
-
-  const officialLabelUrl =
-    getDisplayMedicineText(medicine?.official_label_url) ||
-    getDisplayMedicineText(medicine?.official_label?.url);
-
-  const combinationNotice =
-    getDisplayMedicineText(medicine?.combination_label_notice) ||
-    "This is a combination medicine. Clinical information is shown separately for each active ingredient and should not be interpreted as one official label for the complete combination product.";
-
-  const hasDosage =
-    dosage &&
-    typeof dosage === "object" &&
-    Object.values(dosage).some(
-      (value) =>
-        value !== null &&
-        value !== undefined &&
-        String(value).trim() !== ""
-    );
-
-  const renderValueList = (value: any) => {
-    if (Array.isArray(value)) {
-      const values = value
-        .map((item) =>
-          typeof item === "string"
-            ? item
-            : item?.name || item?.text || item?.description || ""
-        )
-        .filter(Boolean);
-
-      if (values.length === 0) return null;
-
-      return (
-        <ul className="space-y-2">
-          {values.map((item, index) => (
-            <li
-              key={`${item}-${index}`}
-              className="flex items-start gap-2 text-[13.5px] leading-relaxed text-foreground/85"
-            >
-              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      );
-    }
-
-    const display = getDisplayMedicineText(value);
-    if (!display) return null;
-
+  const renderMedicineCard = (card: any, displayTitle: string, idx: number) => {
     return (
-      <div className="text-[13.5px] leading-relaxed text-foreground/85 whitespace-pre-line">
-        {display}
+      <div key={idx} className={`rounded-2xl border p-5 shadow-sm ${card.type === 'warning' ? 'border-amber-200 bg-amber-50/50' : 'border-border bg-white'}`}>
+        <div className={`flex items-center gap-2 mb-4 ${card.type === 'warning' ? 'text-amber-700' : 'text-primary'}`}>
+          <IconComponent name={card.icon} />
+          <h5 className="text-[14px] font-bold uppercase tracking-wider">{displayTitle}</h5>
+        </div>
+        
+        {card.type === 'list' || card.type === 'warning' ? (
+          <ul className="space-y-2 text-[13.5px] leading-relaxed text-foreground/85">
+            {card.items?.length > 0 ? card.items.map((item: string, i: number) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${card.type === 'warning' ? 'bg-amber-500' : 'bg-primary'}`} />
+                <span>{item}</span>
+              </li>
+            )) : <li className="text-muted-foreground italic">No details provided.</li>}
+          </ul>
+        ) : (
+          <div className="text-[13.5px] leading-relaxed text-foreground/85 whitespace-pre-line">
+            {card.content || card.items?.join("\n")}
+          </div>
+        )}
       </div>
     );
   };
 
-  const renderIngredientClinicalCard = (
-    label: MedicineIngredientLabel,
-    index: number
-  ) => {
-    const clinicalMedicine =
-      label?.medicine && typeof label.medicine === "object"
-        ? label.medicine
-        : {};
+  const groupedCombinationCards = useMemo(() => {
+    if (!isCombination || !cards.length) return null;
+    const groups: Record<string, any[]> = {};
+    cards.forEach((card: any) => {
+      const parts = card.title.split(" - ");
+      if (parts.length > 1) {
+        const groupName = parts[0];
+        if (!groups[groupName]) groups[groupName] = [];
+        groups[groupName].push({ ...card, displayTitle: parts.slice(1).join(" - ") });
+      } else {
+        const groupName = "General Information";
+        if (!groups[groupName]) groups[groupName] = [];
+        groups[groupName].push({ ...card, displayTitle: card.title });
+      }
+    });
+    return groups;
+  }, [cards, isCombination]);
 
-    const ingredientName =
-      getDisplayMedicineText(label?.ingredient) ||
-      getDisplayMedicineText(clinicalMedicine?.generic_name) ||
-      `Ingredient ${index + 1}`;
-
-    const ingredientUses = clinicalMedicine?.uses;
-    const ingredientDosage = clinicalMedicine?.dosage;
-    const ingredientSideEffects = clinicalMedicine?.side_effects;
-    const ingredientWarnings = clinicalMedicine?.warnings;
-    const ingredientPrecautions = clinicalMedicine?.precautions;
-
-    const openFdaUrl =
-      label?.openfda?.display_payload?.source_url ||
-      label?.openfda?.source_url ||
-      null;
-
-    const dailyMedUrl =
-      label?.dailymed?.display_payload?.source_url ||
-      label?.dailymed?.source_url ||
-      null;
-
-    const hasClinicalContent =
-      Boolean(getDisplayMedicineText(ingredientUses)) ||
-      Boolean(getDisplayMedicineText(ingredientSideEffects)) ||
-      Boolean(getDisplayMedicineText(ingredientWarnings)) ||
-      Boolean(getDisplayMedicineText(ingredientPrecautions)) ||
-      Boolean(
-        ingredientDosage &&
-        typeof ingredientDosage === "object" &&
-        Object.values(ingredientDosage).some(Boolean)
-      );
-
-    return (
-      <article
-        key={`${ingredientName}-${index}`}
-        className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm"
-      >
-        <div className="border-b border-border/70 bg-secondary/10 px-5 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                Active ingredient {index + 1}
-              </div>
-              <h5 className="mt-1 text-[17px] font-bold tracking-tight text-primary">
-                {ingredientName}
-              </h5>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {label?.openfda && (
-                <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">
-                  openFDA
-                </span>
-              )}
-              {label?.dailymed && (
-                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
-                  DailyMed
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-5 p-5">
-          {!hasClinicalContent && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[13px] leading-relaxed text-amber-900">
-              No sufficiently matched structured clinical label information was returned for this ingredient.
-            </div>
-          )}
-
-          {getDisplayMedicineText(ingredientUses) && (
-            <MedicineInfoSection title="Uses">
-              {renderValueList(ingredientUses)}
-            </MedicineInfoSection>
-          )}
-
-          {ingredientDosage &&
-            typeof ingredientDosage === "object" &&
-            Object.values(ingredientDosage).some(Boolean) && (
-              <MedicineInfoSection title="Dosage & Administration">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {Object.entries(ingredientDosage)
-                    .filter(
-                      ([, value]) =>
-                        value !== null &&
-                        value !== undefined &&
-                        String(value).trim() !== ""
-                    )
-                    .map(([key, value]) => (
-                      <div
-                        key={key}
-                        className="rounded-xl border border-border/60 bg-secondary/10 p-3"
-                      >
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          {key.replaceAll("_", " ")}
-                        </div>
-                        <div className="mt-1 text-[13px] leading-relaxed text-foreground/85">
-                          {getDisplayMedicineText(value)}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </MedicineInfoSection>
-            )}
-
-          {getDisplayMedicineText(ingredientSideEffects) && (
-            <MedicineInfoSection title="Side Effects">
-              {renderValueList(ingredientSideEffects)}
-            </MedicineInfoSection>
-          )}
-
-          {getDisplayMedicineText(ingredientWarnings) && (
-            <MedicineInfoSection title="Warnings">
-              {renderValueList(ingredientWarnings)}
-            </MedicineInfoSection>
-          )}
-
-          {getDisplayMedicineText(ingredientPrecautions) && (
-            <MedicineInfoSection title="Precautions">
-              {renderValueList(ingredientPrecautions)}
-            </MedicineInfoSection>
-          )}
-
-          {(openFdaUrl || dailyMedUrl) && (
-            <div className="flex flex-wrap gap-2 border-t border-border/60 pt-4">
-              {openFdaUrl && (
-                <a
-                  href={openFdaUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-[12px] font-bold text-white transition hover:brightness-105"
-                >
-                  Open openFDA Source
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </a>
-              )}
-
-              {dailyMedUrl && (
-                <a
-                  href={dailyMedUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-[12px] font-bold text-primary transition hover:bg-primary/10"
-                >
-                  Open DailyMed Source
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </a>
-              )}
-            </div>
-          )}
-        </div>
-      </article>
-    );
-  };
-
-  if (medicine?.error) {
+  if (data?.error || contractData?.error) {
     return (
       <ResultCard
         icon={<Database className="h-5 w-5" />}
@@ -1719,7 +1506,7 @@ function MedicineBlock({
         contract={contractData}
       >
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-[14px] font-medium text-red-800">
-          {medicine.error}
+          {data?.error || contractData?.error}
         </div>
       </ResultCard>
     );
@@ -1729,228 +1516,99 @@ function MedicineBlock({
     <ResultCard
       icon={<Database className="h-5 w-5" />}
       title={productName}
-      source={
-        isCombination
-          ? "Indian Medicine Dataset + Ingredient-Level Regulatory Labels"
-          : "openFDA + DailyMed Medicine Intelligence"
-      }
-      sourceUrl={!isCombination ? officialLabelUrl || undefined : undefined}
+      source={isCombination ? "Indian Medicine Resolution" : "openFDA + DailyMed Intelligence"}
+      sourceUrl={sources[0]?.url}
       tone="apricot"
       open={open}
       onToggle={onToggle}
       contract={contractData}
     >
       <div className="space-y-6">
+        {/* Profile Header */}
         <section className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
           <div className="bg-secondary/10 px-5 py-5 md:px-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="flex justify-between items-start">
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                  {isCombination ? "Resolved combination medicine" : "Medicine profile"}
-                </div>
-                <h4 className="mt-1 text-[22px] font-bold tracking-tight text-foreground">
-                  {productName}
-                </h4>
-                {genericName && !isCombination && (
-                  <p className="mt-1 text-[13px] text-muted-foreground">
-                    Generic name: <span className="font-medium text-foreground/85">{genericName}</span>
-                  </p>
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Medicine Profile</div>
+                <h4 className="mt-1 text-[22px] font-bold tracking-tight text-foreground">{productName}</h4>
+                {genericName && (
+                  <p className="mt-1 text-[13px] text-muted-foreground">Generic: <span className="font-medium text-foreground/85">{genericName}</span></p>
                 )}
               </div>
-
               {isCombination && (
-                <span className="inline-flex w-fit items-center rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.13em] text-primary">
+                <span className="inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.13em] text-primary">
                   Combination medicine
                 </span>
               )}
             </div>
-
-            {(manufacturer || productType || route) && (
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {manufacturer && (
-                  <MedicineMetaTile label="Manufacturer" value={manufacturer} />
-                )}
-                {productType && (
-                  <MedicineMetaTile label="Dosage Form" value={productType} />
-                )}
-                {route && !isCombination && (
-                  <MedicineMetaTile label="Route" value={route} />
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-border/70 px-5 py-5 md:px-6">
-            <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-              Active Ingredients
+            
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {manufacturer && (
+                <div className="rounded-xl border border-border/60 bg-white p-3 shadow-sm">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Manufacturer</div>
+                  <div className="mt-1 text-[13px] font-medium leading-relaxed text-foreground/85">{manufacturer}</div>
+                </div>
+              )}
+              {strength && (
+                <div className="rounded-xl border border-border/60 bg-white p-3 shadow-sm">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Strength</div>
+                  <div className="mt-1 text-[13px] font-medium leading-relaxed text-foreground/85">{strength}</div>
+                </div>
+              )}
+              {route && (
+                <div className="rounded-xl border border-border/60 bg-white p-3 shadow-sm">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Route</div>
+                  <div className="mt-1 text-[13px] font-medium leading-relaxed text-foreground/85">{route}</div>
+                </div>
+              )}
             </div>
-
-            {activeIngredientItems.length > 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {activeIngredientItems.map((ingredient, index) => (
-                  <div
-                    key={`${ingredient.name}-${index}`}
-                    className="rounded-xl border border-primary/15 bg-primary/5 p-4"
-                  >
-                    <div className="text-[14px] font-bold text-foreground">
-                      {ingredient.name}
-                    </div>
-                    {ingredient.strength && (
-                      <div className="mt-1 text-[12px] font-mono text-primary">
-                        {ingredient.strength}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : fallbackActiveIngredients ? (
-              <div className="rounded-xl border border-border/60 bg-secondary/10 p-4 text-[13.5px] leading-relaxed text-foreground/85">
-                {fallbackActiveIngredients}
-              </div>
-            ) : (
-              <div className="text-[13px] text-muted-foreground">
-                Active ingredient information was not available.
-              </div>
-            )}
           </div>
         </section>
 
-        {isCombination ? (
-          <>
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 rounded-lg bg-white p-2 shadow-sm">
-                  <BookOpen className="h-4 w-4 text-amber-700" />
+        {/* Combination Warning Box */}
+        {isCombination && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 mb-2">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 rounded-lg bg-white p-2 shadow-sm">
+                <BookOpen className="h-4 w-4 text-amber-700" />
+              </div>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.13em] text-amber-800">
+                  Combination label context
                 </div>
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.13em] text-amber-800">
-                    Combination label context
-                  </div>
-                  <p className="mt-1.5 text-[13.5px] leading-relaxed text-amber-950">
-                    {combinationNotice}
-                  </p>
-                </div>
+                <p className="mt-1.5 text-[13.5px] leading-relaxed text-amber-950">
+                  This is a combination medicine. Clinical information is shown separately for each active ingredient below and should not be interpreted as one official label for the complete combination product.
+                </p>
               </div>
             </div>
+          </div>
+        )}
 
-            <section>
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                    Ingredient-level clinical information
+        {/* Structured Frontend Cards */}
+        {isStructured && cards.length > 0 ? (
+          isCombination && groupedCombinationCards ? (
+            <div className="grid gap-6 items-start grid-cols-1 md:grid-cols-2">
+              {Object.entries(groupedCombinationCards).map(([groupName, groupCards], groupIdx) => (
+                <div key={groupIdx} className="flex flex-col gap-4">
+                  <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-center shadow-sm">
+                    <h4 className="text-[13px] font-bold uppercase tracking-[0.16em] text-primary">{groupName}</h4>
                   </div>
-                  <p className="mt-1 text-[13px] text-muted-foreground">
-                    Regulatory information is presented independently for each resolved active ingredient.
-                  </p>
+                  {groupCards.map((card, idx) => renderMedicineCard(card, card.displayTitle, idx))}
                 </div>
-                <span className="rounded-full border border-border bg-secondary/20 px-3 py-1 text-[11px] font-mono text-muted-foreground">
-                  {ingredientLabels.length} ingredient{ingredientLabels.length === 1 ? "" : "s"}
-                </span>
-              </div>
-
-              {ingredientLabels.length > 0 ? (
-                <div className="space-y-4">
-                  {ingredientLabels.map(renderIngredientClinicalCard)}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-[13.5px] text-amber-900">
-                  The product composition was resolved, but no ingredient-level official label bundles were returned.
-                </div>
-              )}
-            </section>
-          </>
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {cards.map((card: any, idx: number) => renderMedicineCard(card, card.title, idx))}
+            </div>
+          )
         ) : (
-          <div className="grid gap-4">
-            {uses && (
-              <MedicineInfoSection title="Uses">
-                {renderValueList(medicine?.uses)}
-              </MedicineInfoSection>
-            )}
-
-            {hasDosage && (
-              <MedicineInfoSection title="Dosage & Administration">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {Object.entries(dosage)
-                    .filter(
-                      ([, value]) =>
-                        value !== null &&
-                        value !== undefined &&
-                        String(value).trim() !== ""
-                    )
-                    .map(([key, value]) => (
-                      <div
-                        key={key}
-                        className="rounded-xl border border-border/60 bg-secondary/10 p-3"
-                      >
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          {key.replaceAll("_", " ")}
-                        </div>
-                        <div className="mt-1 text-[13px] leading-relaxed text-foreground/85">
-                          {getDisplayMedicineText(value)}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </MedicineInfoSection>
-            )}
-
-            {sideEffects && (
-              <MedicineInfoSection title="Side Effects">
-                {renderValueList(medicine?.side_effects)}
-              </MedicineInfoSection>
-            )}
-
-            {warnings && (
-              <MedicineInfoSection title="Warnings">
-                {renderValueList(medicine?.warnings)}
-              </MedicineInfoSection>
-            )}
-
-            {precautions && (
-              <MedicineInfoSection title="Precautions">
-                {renderValueList(medicine?.precautions)}
-              </MedicineInfoSection>
-            )}
+          <div className="rounded-2xl border border-border bg-secondary/10 p-5 text-sm text-muted-foreground text-center">
+            No structured clinical information available. Check the raw contract data below.
           </div>
         )}
       </div>
     </ResultCard>
-  );
-}
-
-function MedicineMetaTile({
-  label,
-  value
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border/60 bg-white p-3 shadow-sm">
-      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-1 text-[13px] font-medium leading-relaxed text-foreground/85">
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function MedicineInfoSection({
-  title,
-  children
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-      <h5 className="mb-3 text-[12px] font-bold uppercase tracking-[0.14em] text-primary">
-        {title}
-      </h5>
-      {children}
-    </section>
   );
 }
 
@@ -1962,7 +1620,7 @@ function NutritionBlock({
   onToggle,
 }: {
   data: NutritionData;
-  contractData: unknown;
+  contractData: any;
   userQuery?: string;
   open?: boolean;
   onToggle: () => void;
@@ -2350,451 +2008,6 @@ function renderUsdaPortionLabel(portion: any) {
   return parts.join(" · ") || null;
 }
 
-function MedicineAccordionSection({ title, children }: { title: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
-      >
-        <span className="text-[14px] font-semibold tracking-tight text-foreground">{title}</span>
-        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-300 ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && <div className="border-t border-border/70 px-4 py-4">{children}</div>}
-    </div>
-  );
-}
-
-function MedicineLabelSection({ rawText, kind }: { rawText: string; kind: "uses" | "dosage" | "sideEffects" | "warnings" | "precautions" }) {
-  const [view, setView] = useState<"formatted" | "raw">("formatted");
-  const formattedContent = useMemo(() => renderFormattedMedicineText(rawText, kind), [rawText, kind]);
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-end">
-        <MedicineViewToggle value={view} onChange={setView} />
-      </div>
-      {view === "formatted" ? (
-        formattedContent || (
-          <div className="rounded-xl border border-border bg-secondary/10 p-4 text-[13px] leading-6 text-foreground/85 whitespace-pre-wrap">
-            {rawText}
-          </div>
-        )
-      ) : (
-        <div className="rounded-xl border border-border bg-secondary/10 p-4 text-[13px] leading-6 text-foreground/85 whitespace-pre-wrap">
-          {rawText}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MedicineViewToggle({ value, onChange }: { value: "formatted" | "raw"; onChange: (next: "formatted" | "raw") => void }) {
-  return (
-    <div className="inline-flex rounded-full border border-border bg-white p-1 shadow-sm">
-      <button
-        type="button"
-        onClick={() => onChange("formatted")}
-        className={`rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition ${value === "formatted" ? "bg-primary text-white" : "text-muted-foreground"}`}
-      >
-        Formatted View
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("raw")}
-        className={`rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition ${value === "raw" ? "bg-primary text-white" : "text-muted-foreground"}`}
-      >
-        Original Label
-      </button>
-    </div>
-  );
-}
-
-function renderFormattedMedicineText(rawText: string, kind: "uses" | "dosage" | "sideEffects" | "warnings" | "precautions") {
-  const text = (rawText || "").trim();
-  if (!text) return null;
-
-  const blocks = splitMedicineSections(text);
-  if (blocks.length > 1) {
-    return (
-      <div className="space-y-3">
-        {blocks.map((block, blockIndex) => (
-          <LabelSubsection key={`${block.title || "section"}-${blockIndex}`} title={block.title}>
-            {renderMedicineBlockContent(block.content, kind)}
-          </LabelSubsection>
-        ))}
-      </div>
-    );
-  }
-
-  return renderMedicineBlockContent(text, kind);
-}
-
-function splitMedicineSections(text: string) {
-  const lines = text.split(/\r?\n/).map((line) => line.trimEnd());
-  const sections: Array<{ title: string; content: string[] }> = [];
-
-  let current: { title: string; content: string[] } | null = null;
-
-  const flush = () => {
-    if (!current) return;
-    const content = current.content.filter((line) => line.trim()).join("\n").trim();
-    if (content || current.title) {
-      sections.push({ title: current.title, content: content ? [content] : [] });
-    }
-  };
-
-  lines.forEach((rawLine) => {
-    const line = rawLine.trim();
-    if (!line) {
-      if (current) {
-        current.content.push("");
-      }
-      return;
-    }
-
-    if (isMedicineHeading(line)) {
-      flush();
-      current = { title: cleanMedicineHeading(line), content: [] };
-      return;
-    }
-
-    if (!current) {
-      current = { title: "", content: [] };
-    }
-    current.content.push(line);
-  });
-
-  flush();
-
-  return sections.filter((section) => section.title || section.content.length > 0);
-}
-
-function isMedicineHeading(line: string) {
-  const trimmed = line.trim();
-  if (!trimmed) return false;
-  if (/^\d+(?:\.\d+)*\s+/.test(trimmed)) return true;
-  if (/^(adult|pediatric|limitations of use|usage|indications and usage|dosage and administration|adverse reactions|warnings and precautions|clinical trials experience|postmarketing experience|laboratory abnormalities|hepatotoxicity|severe allergic reactions|qt prolongation|precautions)$/i.test(trimmed)) return true;
-  if (/^[A-Z][A-Z0-9 /&(),.-]+$/.test(trimmed) && trimmed.split(/\s+/).length <= 8) return true;
-  return false;
-}
-
-function cleanMedicineHeading(line: string) {
-  return line
-    .trim()
-    .replace(/^\d+(?:\.\d+)*\s+/, "")
-    .replace(/\s+/g, " ");
-}
-
-function renderMedicineBlockContent(content: string | string[], kind: "uses" | "dosage" | "sideEffects" | "warnings" | "precautions") {
-  const normalized = (Array.isArray(content) ? content.join("\n") : content)
-    .replace(/\r/g, "")
-    .trim();
-  if (!normalized) return null;
-
-  const bulletItems = normalized
-    .split(/\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("•") || line.startsWith("-"))
-    .map((line) => line.replace(/^[-•]\s*/, "").trim())
-    .filter(Boolean);
-
-  if (bulletItems.length > 0) {
-    return <LabelBulletList items={bulletItems} />;
-  }
-
-  const categoryMatches = normalized
-    .split(/\n/)
-    .map((line) => line.trim())
-    .filter((line) => /.+:\s/.test(line) && line.split(":")[0].trim().length > 1);
-
-  if (categoryMatches.length > 0 && kind !== "dosage") {
-    return (
-      <div className="space-y-2">
-        {categoryMatches.map((line, index) => {
-          const [category, ...rest] = line.split(":");
-          return <LabelCategoryRow key={`${category}-${index}`} category={category.trim()} content={rest.join(":").trim()} />;
-        })}
-      </div>
-    );
-  }
-
-  if (kind === "dosage") {
-    return renderDosageContent(normalized);
-  }
-
-  const paragraphs = normalized
-    .split(/\n\s*\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
-
-  if (paragraphs.length > 1) {
-    return (
-      <div className="space-y-3">
-        {paragraphs.map((paragraph, index) => (
-          <div key={`${paragraph.slice(0, 20)}-${index}`} className="text-[13px] leading-6 text-foreground/85">
-            {paragraph}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return <div className="text-[13px] leading-6 text-foreground/85 whitespace-pre-wrap">{normalized}</div>;
-}
-
-function renderDosageContent(content: string) {
-  const lines = content
-    .split(/\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const blocks: Array<{ title: string; body: string[] }> = [];
-  let current: { title: string; body: string[] } | null = null;
-
-  lines.forEach((line) => {
-    const isConditionLike = !/^(recommended dose|dose|duration|dosage|adult|pediatric|children|infants|patients|therapy|treatment|administration)/i.test(line) && !/^[0-9]+/.test(line);
-    if (isConditionLike && !line.includes(":") && line.length < 120) {
-      if (current) {
-        blocks.push(current);
-      }
-      current = { title: line, body: [] };
-      return;
-    }
-
-    if (current) {
-      current.body.push(line);
-    } else {
-      blocks.push({ title: "Dosage Information", body: [line] });
-    }
-  });
-
-  if (current) {
-    blocks.push(current);
-  }
-
-  if (blocks.length === 0) {
-    return <div className="text-[13px] leading-6 text-foreground/85 whitespace-pre-wrap">{content}</div>;
-  }
-
-  return (
-    <div className="space-y-3">
-      {blocks.map((block, index) => (
-        <div key={`${block.title}-${index}`} className="rounded-xl border border-border bg-white/70 p-4 shadow-sm">
-          <div className="text-[12px] font-bold uppercase tracking-[0.14em] text-primary">{block.title}</div>
-          <div className="mt-2 space-y-2 text-[13px] leading-6 text-foreground/85">
-            {block.body.length > 0 ? block.body.map((entry, entryIndex) => (
-              <div key={`${entry}-${entryIndex}`} className="rounded-lg border border-border/70 bg-secondary/10 px-3 py-2">
-                {entry}
-              </div>
-            )) : <div className="text-muted-foreground">No additional dosage details provided.</div>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function LabelSubsection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-border bg-white/80 p-4 shadow-sm">
-      {title && <div className="mb-3 text-[12px] font-bold uppercase tracking-[0.14em] text-primary">{title}</div>}
-      <div className="space-y-2">{children}</div>
-    </div>
-  );
-}
-
-function LabelBulletList({ items }: { items: string[] }) {
-  return (
-    <ul className="space-y-2 pl-5 text-[13px] leading-6 text-foreground/85">
-      {items.map((item, index) => (
-        <li key={`${item}-${index}`} className="list-disc">
-          {item}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function LabelCategoryRow({ category, content }: { category: string; content: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-secondary/10 p-3">
-      <div className="text-[12px] font-bold uppercase tracking-[0.14em] text-primary">{category}</div>
-      <div className="mt-1 text-[13px] leading-6 text-foreground/85">{content}</div>
-    </div>
-  );
-}
-
-function getDisplayMedicineText(value: any): string | null {
-  if (value === null || value === undefined) return null;
-
-  if (typeof value === "string") {
-    const text = value.trim();
-    return text && text !== "null" && text !== "undefined" ? text : null;
-  }
-
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((item) => getDisplayMedicineText(item))
-      .filter(Boolean) as string[];
-    return parts.length > 0 ? parts.join("\n") : null;
-  }
-
-  if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, any>)
-      .map(([key, nestedValue]) => {
-        const text = getDisplayMedicineText(nestedValue);
-        return text ? `${key}: ${text}` : null;
-      })
-      .filter(Boolean) as string[];
-
-    return entries.length > 0 ? entries.join("\n") : null;
-  }
-
-  const text = String(value).trim();
-  return text && text !== "null" && text !== "undefined" ? text : null;
-}
-
-function getMedicineRouteValue(value: any): string | null {
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((item) => getDisplayMedicineText(item))
-      .filter(Boolean) as string[];
-    return parts.length > 0 ? parts.join(", ") : null;
-  }
-
-  return getDisplayMedicineText(value);
-}
-
-function getMedicineActiveIngredients(value: any): string | null {
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((item) => getMedicineIngredientToken(item))
-      .filter(Boolean) as string[];
-    return parts.length > 0 ? parts.join(", ") : null;
-  }
-
-  if (value === null || value === undefined) return null;
-  return getMedicineIngredientToken(value);
-}
-
-function getMedicineIngredientToken(value: any): string | null {
-  if (typeof value === "string") {
-    const text = value.trim();
-    return text && text !== "null" && text !== "undefined" ? text : null;
-  }
-
-  if (typeof value === "number") {
-    return String(value);
-  }
-
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((item) => getMedicineIngredientToken(item))
-      .filter(Boolean) as string[];
-    return parts.length > 0 ? parts.join(", ") : null;
-  }
-
-  if (value && typeof value === "object") {
-    const candidateKeys = [
-      "name",
-      "ingredient",
-      "substance_name",
-      "active_ingredient",
-      "active_ingredient_name",
-      "ingredient_name",
-      "substance",
-      "strength",
-    ];
-
-    const parts = candidateKeys
-      .map((key) => getDisplayMedicineText(value[key]))
-      .filter(Boolean) as string[];
-
-    if (parts.length > 0) {
-      return parts.join(" • ");
-    }
-
-    const fallback = getDisplayMedicineText(value);
-    return fallback;
-  }
-
-  return null;
-}
-
-function renderMedicineSummaryItem(label: string, value: string) {
-  return (
-    <div className="rounded-xl border border-border bg-white px-4 py-3 shadow-sm">
-      <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
-      <div className="mt-1 text-[14px] font-semibold tracking-tight text-foreground/90">{value}</div>
-    </div>
-  );
-}
-
-function getMedicineIngredientSections(medicine: Record<string, any> | null | undefined) {
-  const normalizedIngredients = normalizeMedicineIngredients(medicine?.ingredients);
-  const fallbackIngredients = normalizeMedicineIngredientsFromLegacy(medicine?.active_ingredients);
-
-  return {
-    active: normalizedIngredients.active.length > 0 ? normalizedIngredients.active : fallbackIngredients.active,
-    inactive: normalizedIngredients.inactive.length > 0 ? normalizedIngredients.inactive : fallbackIngredients.inactive,
-  };
-}
-
-function normalizeMedicineIngredients(ingredients: MedicineIngredients | null | undefined) {
-  const active = (ingredients?.active || []).map((ingredient) => normalizeMedicineIngredient(ingredient));
-  const inactive = (ingredients?.inactive || []).map((ingredient) => normalizeMedicineIngredient(ingredient));
-
-  return { active, inactive };
-}
-
-function normalizeMedicineIngredientsFromLegacy(value: unknown) {
-  if (typeof value === "string") {
-    return { active: [normalizeMedicineIngredient(value)], inactive: [] };
-  }
-
-  if (Array.isArray(value)) {
-    return {
-      active: value.map((item) => normalizeMedicineIngredient(item)),
-      inactive: [],
-    };
-  }
-
-  if (value && typeof value === "object") {
-    return {
-      active: [normalizeMedicineIngredient(value)],
-      inactive: [],
-    };
-  }
-
-  return { active: [], inactive: [] };
-}
-
-function normalizeMedicineIngredient(value: unknown): MedicineIngredient {
-  if (typeof value === "string") {
-    return {
-      name: getDisplayMedicineText(value),
-      strength: null,
-    };
-  }
-
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return {
-      name: getDisplayMedicineText(record.name ?? record.ingredient ?? record.ingredient_name ?? record.substance_name),
-      strength: getDisplayMedicineText(record.strength ?? record.strength_value ?? record.amount),
-    };
-  }
-
-  return {
-    name: getDisplayMedicineText(value),
-    strength: null,
-  };
-}
 
 function GoogleSearchBlock({ data, open, onToggle }: { data: any; open?: boolean; onToggle: () => void }) {
   const payload = data.display_payload || {};

@@ -18,21 +18,9 @@ It does not generate:
 
 Structured dosage values are extracted only when they are explicitly
 present in official label text.
-
-Resolution flow:
-
-1. Try the original query directly against openFDA.
-2. If openFDA succeeds, preserve the existing openFDA -> DailyMed flow.
-3. If openFDA fails, try resolving the query against the Indian
-   medicine dataset.
-4. If an Indian brand is resolved, extract its active ingredients.
-5. Try the resolved ingredient search terms against openFDA.
-6. If an official label is found, use its resolved identity to search
-   DailyMed.
-7. If openFDA still fails, allow DailyMed to search using the resolved
-   ingredient identities.
 """
 
+import ast
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -46,6 +34,10 @@ from app.retrievers.dailymed import (
 
 from app.pipeline.medicine_resolver import (
     resolve_medicine_query,
+)
+
+from app.pipeline.medicine_formatter import (
+    format_medicine_payload,
 )
 
 
@@ -108,11 +100,6 @@ def _extract_amount_per_dose(
 ) -> Optional[str]:
     """
     Extract an explicitly stated amount per dose.
-
-    Examples:
-    - take 2 tablets
-    - 1 capsule every 8 hours
-    - take 10 mL every 6 hours
     """
     patterns = [
         r"\btake\s+(\d+(?:\.\d+)?\s+"
@@ -147,11 +134,6 @@ def _extract_dose_interval(
 ) -> Optional[str]:
     """
     Extract an explicitly stated interval.
-
-    Examples:
-    - every 6 hours
-    - every 4 to 6 hours
-    - every 4-6 hours
     """
     patterns = [
         r"\bevery\s+"
@@ -186,10 +168,6 @@ def _extract_maximum_dose(
 ) -> Optional[str]:
     """
     Extract an explicitly stated maximum daily dose.
-
-    Examples:
-    - do not take more than 6 tablets in 24 hours
-    - maximum 4 capsules in 24 hours
     """
     patterns = [
         r"(?:do not take|take no|use no)\s+"
@@ -232,9 +210,6 @@ def parse_dosage_information(
 ) -> Dict[str, Optional[str]]:
     """
     Convert official dosage text into the frontend dosage contract.
-
-    Important:
-    No values are calculated or inferred.
     """
     cleaned_text = _clean_text(
         dosage_text
@@ -361,18 +336,6 @@ def _ingredients_overlap(
     """
     Determine whether an openFDA result is related to at least one
     ingredient resolved from the Indian medicine dataset.
-
-    This is deliberately conservative.
-
-    A fallback openFDA result is rejected if none of the expected
-    ingredient identities appear in:
-    - active ingredients
-    - generic name
-    - brand names
-    - medicine name
-
-    This reduces the chance of accepting an unrelated broad-search
-    result.
     """
     if not resolved_ingredients:
         return False
@@ -483,12 +446,6 @@ def _build_indian_fallback_queries(
 ) -> List[str]:
     """
     Build ordered openFDA fallback queries.
-
-    Priority:
-    1. Combination query
-    2. Individual ingredients
-
-    Duplicate queries are removed while preserving order.
     """
     search_terms = (
         resolution.get(
@@ -567,19 +524,6 @@ async def _resolve_openfda_through_indian_dataset(
     """
     Resolve an Indian medicine brand and attempt openFDA searches
     using the extracted ingredient identities.
-
-    Returns:
-        (
-            indian_resolution,
-            openfda_result,
-            successful_search_term,
-            attempted_queries,
-        )
-
-    Important:
-    The first loosely returned openFDA result is not automatically
-    accepted. It must overlap with the ingredients resolved from
-    the Indian medicine dataset.
     """
 
     try:
@@ -718,11 +662,6 @@ def _build_medicine_payload(
 ) -> Dict[str, Any]:
     """
     Build the final normalized medicine object.
-
-    Existing openFDA-based fields are preserved.
-
-    When an Indian brand was resolved, additional identity metadata
-    is added without replacing the official-label information.
     """
 
     if openfda_result:
@@ -846,12 +785,7 @@ def _build_medicine_payload(
         warnings = None
         precautions = None
 
-    # --------------------------------------------------------
-    # Preserve Indian product identity when fallback was used.
-    # --------------------------------------------------------
-
     indian_product = None
-
     resolved_ingredients = []
 
     if indian_resolution:
@@ -871,8 +805,6 @@ def _build_medicine_payload(
 
         if indian_product:
 
-            # Preserve the user's actual Indian brand as the
-            # primary display identity.
             indian_brand_name = (
                 indian_product.get(
                     "medicine_name"
@@ -884,8 +816,6 @@ def _build_medicine_payload(
                     indian_brand_name
                 )
 
-            # The Indian manufacturer is more relevant to the
-            # actual queried product than the US label manufacturer.
             indian_manufacturer = (
                 indian_product.get(
                     "manufacturer"
@@ -896,10 +826,6 @@ def _build_medicine_payload(
                 manufacturer = (
                     indian_manufacturer
                 )
-
-    # --------------------------------------------------------
-    # Official label
-    # --------------------------------------------------------
 
     official_label_url = None
 
@@ -965,9 +891,6 @@ def _build_medicine_payload(
 
         "precautions":
             precautions,
-
-        # New fields.
-        # Existing frontend consumers can safely ignore these.
 
         "indian_brand_resolution": (
             {
@@ -1040,33 +963,7 @@ async def _handle_medicine_query_single_label(
     query: str,
 ) -> Dict[str, Any]:
     """
-    Main medicine retriever.
-
-    Primary flow:
-
-        Query
-          |
-          v
-        openFDA
-          |
-          +---- success ----> DailyMed
-          |
-          +---- failure
-                  |
-                  v
-        Indian medicine dataset
-                  |
-                  v
-        Ingredient resolution
-                  |
-                  v
-        openFDA using ingredients
-                  |
-                  v
-        DailyMed using resolved identity
-
-    The original openFDA -> DailyMed behavior remains unchanged
-    whenever the original query resolves successfully.
+    Main medicine retriever single label processor.
     """
 
     query = str(
@@ -1138,9 +1035,7 @@ async def _handle_medicine_query_single_label(
     ] = {}
 
     openfda_result = None
-
     dailymed_result = None
-
     indian_resolution = None
 
     resolution_path = (
@@ -1153,10 +1048,7 @@ async def _handle_medicine_query_single_label(
 
     fallback_attempts = []
 
-    # ========================================================
     # STEP 1: PRESERVE EXISTING DIRECT OPENFDA FLOW
-    # ========================================================
-
     direct_openfda_response = (
         await handle_openfda_drug(
             query
@@ -1195,10 +1087,7 @@ async def _handle_medicine_query_single_label(
             or "Unknown openFDA error."
         )
 
-        # ====================================================
         # STEP 2: INDIAN MEDICINE FALLBACK
-        # ====================================================
-
         (
             indian_resolution,
             fallback_openfda_result,
@@ -1209,9 +1098,6 @@ async def _handle_medicine_query_single_label(
                 query
             )
         )
-
-        # Store Indian resolution information even when
-        # ingredient-based openFDA lookup does not succeed.
 
         if indian_resolution:
 
@@ -1310,14 +1196,8 @@ async def _handle_medicine_query_single_label(
                     "in the Indian medicine dataset."
                 )
 
-    # ========================================================
     # STEP 3: SEARCH DAILYMED
-    # ========================================================
-
     if openfda_result:
-
-        # Existing behavior:
-        # use the identity resolved by openFDA.
 
         brand_names = (
             openfda_result.get(
@@ -1341,11 +1221,6 @@ async def _handle_medicine_query_single_label(
 
         dailymed_response = (
             await handle_dailymed(
-
-                # Preserve the original query for direct matches.
-                # For Indian fallback matches, the ingredient query
-                # is more useful to DailyMed.
-
                 query=(
                     resolved_openfda_query
                     if indian_resolution
@@ -1372,12 +1247,6 @@ async def _handle_medicine_query_single_label(
             "resolved"
         )
     ):
-
-        # openFDA could not provide a label, but the Indian
-        # dataset successfully resolved the medicine.
-
-        # DailyMed can still attempt resolution using the
-        # extracted ingredient identities.
 
         resolved_ingredients = (
             indian_resolution.get(
@@ -1431,19 +1300,13 @@ async def _handle_medicine_query_single_label(
 
     else:
 
-        # Preserve the original fallback behavior when neither
-        # openFDA nor the Indian dataset can resolve the query.
-
         dailymed_response = (
             await handle_dailymed(
                 query=query
             )
         )
 
-    # ========================================================
     # STEP 4: PROCESS DAILYMED RESPONSE
-    # ========================================================
-
     if (
         dailymed_response.get(
             "success"
@@ -1482,10 +1345,7 @@ async def _handle_medicine_query_single_label(
             or "Unknown DailyMed error."
         )
 
-    # ========================================================
     # STEP 5: BUILD FINAL MEDICINE OBJECT
-    # ========================================================
-
     medicine = (
         _build_medicine_payload(
             query=query,
@@ -1501,10 +1361,7 @@ async def _handle_medicine_query_single_label(
         )
     )
 
-    # ========================================================
     # STEP 6: BUILD RAW RESULT LIST
-    # ========================================================
-
     results = []
 
     if (
@@ -1542,10 +1399,6 @@ async def _handle_medicine_query_single_label(
             dailymed_result
         )
 
-    # ========================================================
-    # REMOVE DUPLICATE SOURCE STATUS VALUES
-    # ========================================================
-
     successful_sources = list(
         dict.fromkeys(
             successful_sources
@@ -1562,10 +1415,6 @@ async def _handle_medicine_query_single_label(
         not in successful_sources
     ]
 
-    # ========================================================
-    # FINAL RESPONSE
-    # ========================================================
-
     return {
         "intent":
             "medicine",
@@ -1574,9 +1423,6 @@ async def _handle_medicine_query_single_label(
             query,
 
         "payload": {
-
-            # Existing fields preserved.
-
             "medicine":
                 medicine,
 
@@ -1586,15 +1432,10 @@ async def _handle_medicine_query_single_label(
             "dailymed":
                 dailymed_result,
 
-            # New field.
-
             "indian_medicine_resolution":
                 indian_resolution,
 
-            # Debug/trace information useful during development.
-
             "resolution_metadata": {
-
                 "resolution_path":
                     resolution_path,
 
@@ -1628,6 +1469,7 @@ async def _handle_medicine_query_single_label(
             len(results),
     }
 
+
 # ============================================================
 # COMBINATION MEDICINE INGREDIENT LABEL ENRICHMENT
 # ============================================================
@@ -1654,10 +1496,6 @@ async def _fetch_official_label_for_ingredient(
 
     if not ingredient:
         return output
-
-    # --------------------------------------------------------
-    # OPENFDA
-    # --------------------------------------------------------
 
     openfda_response = await handle_openfda_drug(
         ingredient
@@ -1720,10 +1558,6 @@ async def _fetch_official_label_for_ingredient(
             "No matching openFDA label found."
         )
 
-    # --------------------------------------------------------
-    # DAILYMED
-    # --------------------------------------------------------
-
     if output["openfda"]:
 
         result = output[
@@ -1732,7 +1566,6 @@ async def _fetch_official_label_for_ingredient(
 
         dailymed_response = (
             await handle_dailymed(
-
                 query=ingredient,
 
                 brand_names=(
@@ -1759,12 +1592,8 @@ async def _fetch_official_label_for_ingredient(
 
     else:
 
-        # Even when openFDA fails, independently
-        # attempt DailyMed using the ingredient name.
-
         dailymed_response = (
             await handle_dailymed(
-
                 query=ingredient,
 
                 brand_names=[],
@@ -1879,10 +1708,6 @@ async def _fetch_official_label_for_ingredient(
             "No matching DailyMed label found."
         )
 
-    # --------------------------------------------------------
-    # BUILD NORMALIZED INGREDIENT MEDICINE OBJECT
-    # --------------------------------------------------------
-
     if (
         output["openfda"]
         or output["dailymed"]
@@ -1892,7 +1717,6 @@ async def _fetch_official_label_for_ingredient(
             "medicine"
         ] = (
             _build_medicine_payload(
-
                 query=ingredient,
 
                 openfda_result=
@@ -1945,20 +1769,9 @@ async def handle_medicine_query(
     query: str,
 ) -> Dict[str, Any]:
     """
-    Run the existing medicine pipeline first.
-
-    For Indian combination medicines:
-    - retrieve official information independently for every ingredient
-    - preserve the actual Indian product identity at the top level
-    - prevent one ingredient's official label from being presented as
-      the official label of the complete combination medicine
-
-    Single-ingredient and directly resolved medicines remain unchanged.
+    Run the medicine pipeline and pass final payload through format_medicine_payload().
+    All retrieval, resolution, and combination logic is preserved completely.
     """
-
-    # ========================================================
-    # RUN EXISTING MEDICINE PIPELINE
-    # ========================================================
 
     response = await _handle_medicine_query_single_label(
         query
@@ -1972,10 +1785,6 @@ async def handle_medicine_query(
 
     ingredient_labels = []
     unique_ingredients = []
-
-    # ========================================================
-    # IDENTIFY COMBINATION MEDICINES
-    # ========================================================
 
     if (
         resolution
@@ -2009,10 +1818,6 @@ async def handle_medicine_query(
                 value
             )
 
-        # ----------------------------------------------------
-        # FETCH EVERY INGREDIENT INDEPENDENTLY
-        # ----------------------------------------------------
-
         if len(unique_ingredients) > 1:
 
             for ingredient in unique_ingredients:
@@ -2027,10 +1832,6 @@ async def handle_medicine_query(
                 ingredient_labels.append(
                     ingredient_label
                 )
-
-    # ========================================================
-    # EXPOSE INGREDIENT LABELS
-    # ========================================================
 
     payload["ingredient_labels"] = (
         ingredient_labels
@@ -2068,10 +1869,6 @@ async def handle_medicine_query(
                 "combination_label_notice"
             ] = None
 
-    # ========================================================
-    # FIX TOP-LEVEL COMBINATION MEDICINE PAYLOAD
-    # ========================================================
-
     is_combination = (
         resolution
         and resolution.get("resolved")
@@ -2090,10 +1887,6 @@ async def handle_medicine_query(
             or {}
         )
 
-        # ----------------------------------------------------
-        # PRESERVE ACTUAL INDIAN PRODUCT IDENTITY
-        # ----------------------------------------------------
-
         medicine["medicine_name"] = (
             product.get("medicine_name")
             or query
@@ -2107,10 +1900,6 @@ async def handle_medicine_query(
             product.get("type")
         )
 
-        # ----------------------------------------------------
-        # PARSE ACTIVE INGREDIENTS WITH STRENGTHS
-        # ----------------------------------------------------
-
         active_ingredients = []
 
         raw_active_ingredients = (
@@ -2121,7 +1910,6 @@ async def handle_medicine_query(
 
         parsed_active_ingredients = []
 
-        # Already a list
         if isinstance(
             raw_active_ingredients,
             list,
@@ -2131,15 +1919,12 @@ async def handle_medicine_query(
                 raw_active_ingredients
             )
 
-        # Serialized Python list from CSV
         elif isinstance(
             raw_active_ingredients,
             str,
         ):
 
             try:
-
-                import ast
 
                 parsed = ast.literal_eval(
                     raw_active_ingredients
@@ -2161,10 +1946,6 @@ async def handle_medicine_query(
             ):
 
                 parsed_active_ingredients = []
-
-        # ----------------------------------------------------
-        # BUILD CLEAN INGREDIENT OBJECTS
-        # ----------------------------------------------------
 
         for item in (
             parsed_active_ingredients
@@ -2201,10 +1982,6 @@ async def handle_medicine_query(
                 }
             )
 
-        # ----------------------------------------------------
-        # FALLBACK IF STRUCTURED DATA IS UNAVAILABLE
-        # ----------------------------------------------------
-
         if not active_ingredients:
 
             active_ingredients = [
@@ -2222,22 +1999,8 @@ async def handle_medicine_query(
             "active_ingredients"
         ] = active_ingredients
 
-        # ====================================================
-        # CLEAR FIRST-INGREDIENT CLINICAL INFORMATION
-        # ====================================================
-        #
-        # The original pipeline may have resolved the first
-        # successful ingredient and populated these fields.
-        #
-        # For a combination medicine that is misleading,
-        # because the information does not describe the full
-        # Indian combination product.
-        # ====================================================
-
         medicine["generic_name"] = None
-
         medicine["brand_names"] = []
-
         medicine["uses"] = []
 
         medicine["dosage"] = {
@@ -2248,16 +2011,9 @@ async def handle_medicine_query(
         }
 
         medicine["side_effects"] = []
-
         medicine["warnings"] = None
-
         medicine["precautions"] = None
-
         medicine["route"] = []
-
-        # ----------------------------------------------------
-        # CLEAR SINGLE-LABEL REFERENCE
-        # ----------------------------------------------------
 
         medicine["official_label"] = {
             "source": None,
@@ -2278,24 +2034,8 @@ async def handle_medicine_query(
 
         payload["medicine"] = medicine
 
-        # ====================================================
-        # CLEAR MISLEADING TOP-LEVEL OFFICIAL LABELS
-        # ====================================================
-
         payload["openfda"] = None
-
         payload["dailymed"] = None
-
-        # ====================================================
-        # REMOVE MISLEADING TOP-LEVEL SOURCE RESULTS
-        # ====================================================
-        #
-        # For combination medicines, the original pipeline may
-        # have stored the first successfully resolved ingredient's
-        # openFDA and DailyMed results here.
-        #
-        # Those results now belong only inside ingredient_labels.
-        # ====================================================
 
         source_results = response.get(
             "source_results"
@@ -2306,18 +2046,14 @@ async def handle_medicine_query(
             dict,
         ):
             source_results.pop(
-            "openfda",
-            None,
+                "openfda",
+                None,
             )
 
             source_results.pop(
-            "dailymed",
-            None,
+                "dailymed",
+                None,
             )
-
-    # ========================================================
-    # ADD INGREDIENT LABELS TO SOURCE RESULTS
-    # ========================================================
 
     if ingredient_labels:
 
@@ -2327,10 +2063,6 @@ async def handle_medicine_query(
         )[
             "ingredient_labels"
         ] = ingredient_labels
-
-    # ========================================================
-    # CLEAN RESULTS FOR COMBINATION MEDICINES
-    # ========================================================
 
     if is_combination:
 
@@ -2347,12 +2079,6 @@ async def handle_medicine_query(
                 "source"
             )
 
-            # Keep Indian product resolution.
-            #
-            # Remove the old top-level openFDA/DailyMed
-            # results because they represent only the first
-            # successfully resolved ingredient.
-
             if source in {
                 "openfda",
                 "dailymed",
@@ -2366,10 +2092,6 @@ async def handle_medicine_query(
         response["results"] = (
             cleaned_results
         )
-
-    # ========================================================
-    # ADD PER-INGREDIENT OFFICIAL RESULTS
-    # ========================================================
 
     results = response.setdefault(
         "results",
@@ -2407,10 +2129,6 @@ async def handle_medicine_query(
             }
         )
 
-    # ========================================================
-    # UPDATE SUCCESSFUL / FAILED SOURCES
-    # ========================================================
-
     if is_combination:
 
         successful_sources = [
@@ -2441,10 +2159,6 @@ async def handle_medicine_query(
             )
         )
 
-        # Remove openFDA/DailyMed from the combination-level
-        # failure list. Their success/failure now belongs to
-        # each ingredient_labels entry.
-
         response[
             "failed_sources"
         ] = [
@@ -2464,17 +2178,9 @@ async def handle_medicine_query(
             }
         ]
 
-    # ========================================================
-    # UPDATE RESULT COUNT
-    # ========================================================
-
     response["total_results"] = len(
         results
     )
-
-    # ========================================================
-    # UPDATE RESOLUTION METADATA
-    # ========================================================
 
     metadata = payload.setdefault(
         "resolution_metadata",
@@ -2522,10 +2228,6 @@ async def handle_medicine_query(
         ],
     }
 
-    # --------------------------------------------------------
-    # Combination-specific metadata
-    # --------------------------------------------------------
-
     if is_combination:
 
         metadata[
@@ -2537,5 +2239,9 @@ async def handle_medicine_query(
         metadata[
             "resolved_openfda_query"
         ] = None
+
+    # FORMAT PAYLOAD BEFORE RETURNING
+    formatted_payload = format_medicine_payload(payload)
+    payload["formatted_data"] = formatted_payload
 
     return response

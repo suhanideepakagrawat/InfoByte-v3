@@ -330,7 +330,6 @@ def route_query(
                 _run_nutrition
             )
 
-    # Google Search remains the universal fallback.
     scraper_map[
         "google_search"
     ] = (
@@ -511,6 +510,49 @@ def route_query(
     # 6. Final API Response
     # ------------------------------------------------------
 
+    if top_intent == "medicine" and "medicine" in completed_results:
+        med_response = completed_results["medicine"]
+        if isinstance(med_response, dict) and "error" not in med_response:
+            payload_data = med_response.get("payload", {})
+            formatted_data = payload_data.get("formatted_data", {})
+            
+            summary_text = ""
+            if ai_synthesis:
+                summary_text = ai_synthesis.get("llm_overview") or ai_synthesis.get("factual_summary") or ""
+
+            confidence_scores = {
+                prediction["label"]: f"{prediction['score'] * 100:.2f}%"
+                for prediction in predictions
+            } if not confirmed_intent else {top_intent: "100.00%"}
+
+            return {
+                "medicine": formatted_data.get("medicine", {}),
+                "summary": summary_text,
+                "sources": formatted_data.get("sources", []),
+                "cards": formatted_data.get("cards", []),
+                "raw_contract": payload_data,
+                "metadata": {
+                    "intents_detected": selected_intents,
+                    "primary_intent": top_intent,
+                    "confidence_scores": confidence_scores
+                },
+                "uses": formatted_data.get("uses", []),
+                "dosage": formatted_data.get("dosage", {}),
+                "ingredients": formatted_data.get("ingredients", []),
+                "side_effects": formatted_data.get("side_effects", {}),
+                "warnings": formatted_data.get("warnings", []),
+                "contraindications": formatted_data.get("contraindications", []),
+                "interactions": formatted_data.get("interactions", {}),
+                "pregnancy": formatted_data.get("pregnancy", ""),
+                "breastfeeding": formatted_data.get("breastfeeding", ""),
+                "kidney": formatted_data.get("kidney", ""),
+                "liver": formatted_data.get("liver", ""),
+                "storage": formatted_data.get("storage", ""),
+                "missed_dose": formatted_data.get("missed_dose", ""),
+                "overdose": formatted_data.get("overdose", ""),
+                "monitoring": formatted_data.get("monitoring", "")
+            }
+
     return {
 
         "intents_detected":
@@ -528,7 +570,7 @@ def route_query(
 
             for prediction
             in predictions
-        },
+        } if not confirmed_intent else {top_intent: "100.00%"},
 
         "payload":
             packaged_data,
