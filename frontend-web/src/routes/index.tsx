@@ -17,7 +17,7 @@ export const Route = createFileRoute("/")({
   component: SearchView,
 });
 
-const API_BASE = "http://127.0.0.1:8000/api";
+const API_BASE = "https://infobyte-v3.onrender.com/api";
 
 const ALL_TAXONOMY_INTENTS = [
   "technical_code", "technical_oracle", "discussion_social",
